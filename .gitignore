@@ -1,0 +1,34 @@
+.gradle
+build/
+out/
+
+# Lumance pipeline work dirs (downloaded vanilla, decompiled sources, extracted libs)
+work/
+run/
+
+# Server runtime dirs (created by running the bootstrap)
+libraries/
+cache/
+logs/
+crash-reports/
+world/
+eula.txt
+server.properties
+user_jvm_args.txt
+*.log
+
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+!**/src/**/out/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store

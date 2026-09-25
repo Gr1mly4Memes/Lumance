@@ -1,0 +1,34 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        mavenCentral()
+        // Only for the Vineflower decompiler plugin (build-time tool).
+        maven {
+            url = 'https://maven.neoforged.net/releases/'
+            content {
+                includeGroup('net.neoforged')
+            }
+        }
+        // Only for Fabric Loader libraries (resolved into the bootstrap manifest).
+        maven {
+            url = 'https://maven.fabricmc.net/'
+            content {
+                includeGroup('net.fabricmc')
+                includeGroup('net.fabricmc.fabric-api')
+                includeGroup('org.ow2.asm')
+            }
+        }
+    }
+}
+
+rootProject.name = 'Lumance'
+
+include ':launcher'
+project(':launcher').projectDir = file('launcher')

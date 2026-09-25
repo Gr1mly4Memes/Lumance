@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lumance console logging: Mojang's vanilla config with one change - the
+     console pattern highlights levels and drops the thread tag (Paper-style),
+     so terminals render colors. Everything else (file format, GUI queue,
+     Tracy, filters) is byte-identical vanilla: no custom log4j plugins, so
+     nothing can fail to resolve under Fabric's Knot classloader. -->
+<Configuration status="WARN">
+    <Appenders>
+        <!-- INFO and below print plain (Paper look); WARN+ goes highlighted.
+             Split in two because log4j falls back to its default style for
+             levels missing from a highlight map (which paints INFO green).
+             NOTE: minLevel is the numerically-smaller (most severe) bound -
+             INFO..TRACE, not TRACE..INFO - or both ranges match nothing. -->
+        <Console name="SysOut" target="SYSTEM_OUT">
+            <PatternLayout pattern="[%d{HH:mm:ss} %level]: %msg%n%xEx{full}" />
+            <LevelRangeFilter minLevel="INFO" maxLevel="TRACE" onMatch="ACCEPT" onMismatch="DENY" />
+        </Console>
+        <Console name="SysOutColor" target="SYSTEM_OUT">
+            <PatternLayout pattern="%highlight{[%d{HH:mm:ss} %level]: %msg%n%xEx{full}}{FATAL=red, ERROR=red, WARN=yellow}" />
+            <LevelRangeFilter minLevel="FATAL" maxLevel="WARN" onMatch="ACCEPT" onMismatch="DENY" />
+        </Console>
+        <Queue name="ServerGuiConsole">
+            <PatternLayout pattern="[%d{HH:mm:ss} %level]: %msg{nolookups}%n" />
+        </Queue>
+        <RollingRandomAccessFile name="File" fileName="logs/latest.log" filePattern="logs/%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level]: %msg{nolookups}%n" />
+            <Policies>
+                <TimeBasedTriggeringPolicy />
+                <OnStartupTriggeringPolicy />
+            </Policies>
+            <DefaultRolloverStrategy max="1000"/>
+        </RollingRandomAccessFile>
+        <Listener name="Tracy">
+            <PatternLayout pattern="(%F:%L): %msg{nolookups}%n" />
+        </Listener>
+        <Async name="Async">
+            <AppenderRef ref="File"/>
+            <AppenderRef ref="SysOut" level="info"/>
+            <AppenderRef ref="SysOutColor" level="info"/>
+            <AppenderRef ref="ServerGuiConsole" level="info"/>
+            <AppenderRef ref="Tracy"/>
+        </Async>
+    </Appenders>
+    <Loggers>
+        <Root level="info">
+            <filters>
+                <MarkerFilter marker="NETWORK_PACKETS" onMatch="DENY" onMismatch="NEUTRAL" />
+            </filters>
+            <AppenderRef ref="Async"/>
+        </Root>
+    </Loggers>
+</Configuration>

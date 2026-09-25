@@ -1,0 +1,25 @@
+plugins {
+    id 'java'
+}
+
+group = 'gr1mly4memes.lumance'
+version = project.findProperty('lumanceVersion') ?: '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of((project.findProperty('javaVersion') ?: '25') as int)
+    }
+}
+
+// No dependencies - the bootstrap is intentionally dependency-free.
+// (Only the JDK is required at runtime.)
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+                'Main-Class': 'gr1mly4memes.launcher.lumance.Main',
+                'Implementation-Title': 'Lumance',
+                'Implementation-Version': project.version
+        )
+    }
+}

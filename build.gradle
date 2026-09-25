@@ -1,0 +1,675 @@
+plugins {
+    id 'java'
+    id 'idea'
+}
+
+group = 'gr1mly4memes.lumance'
+version = project.findProperty('lumanceVersion') ?: '0.1.0'
+
+def mcVer = project.findProperty('mcVersion')
+def javaVersion = (project.findProperty('javaVersion') ?: '25') as int
+def workDir = layout.projectDirectory.dir('work')
+def cacheDir = workDir.dir('cache')
+
+// Only work/main, work/client and work/brigadier (the editable trees) show as
+// sources; everything else under work/ is pipeline state and is hidden.
+def excludedWorkDirs = ['cache'].collect { workDir.dir(it).asFile }
+idea {
+    module {
+        excludeDirs.addAll(excludedWorkDirs)
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(javaVersion)
+    }
+}
+
+// Repositories come from settings.gradle (dependencyResolutionManagement);
+// nothing is declared here so those apply.
+
+configurations {
+    decompiler
+    fabricLibraries
+    fabricMods
+}
+
+// Fabric Loader stack, resolved here and downloaded by the launcher on demand.
+// Order matters: it becomes the head of the runtime classpath in fabric mode.
+// (No intermediary: this tree is unobfuscated, and Knot boots to Done without it.)
+def fabricCoords = [
+        "net.fabricmc:fabric-loader:${project.findProperty('fabricLoaderVersion')}",
+        "org.ow2.asm:asm:${project.findProperty('fabricAsmVersion')}",
+        "org.ow2.asm:asm-analysis:${project.findProperty('fabricAsmVersion')}",
+        "org.ow2.asm:asm-commons:${project.findProperty('fabricAsmVersion')}",
+        "org.ow2.asm:asm-tree:${project.findProperty('fabricAsmVersion')}",
+        "org.ow2.asm:asm-util:${project.findProperty('fabricAsmVersion')}",
+        "net.fabricmc:sponge-mixin:${project.findProperty('fabricMixinVersion')}",
+]
+
+// Mods bundled with Lumance itself. These are loaded as mods (never placed on
+// the game classpath), so they live in their own configuration + manifest section.
+def bundledModCoords = [
+        "net.fabricmc.fabric-api:fabric-api:${project.findProperty('fabricApiVersion')}",
+]
+
+dependencies {
+    decompiler "org.vineflower:vineflower:${project.findProperty('vineflowerVersion')}"
+    decompiler "net.neoforged:vineflower-plugins:${project.findProperty('vineflowerPluginsVersion')}"
+    for (String coord : fabricCoords) {
+        dependencies.add('fabricLibraries', coord)
+    }
+    for (String coord : bundledModCoords) {
+        dependencies.add('fabricMods', coord)
+    }
+}
+
+// Editable trees mirror NeoForge's workspace shape: <side>/java/... The hidden
+// decompile/filter state lives under work/cache/ (see the idea exclusions below).
+sourceSets {
+    server {
+        java {
+            srcDirs = [workDir.dir('main/java'), workDir.dir('brigadier/java'), 'src/lumance/java']
+        }
+    }
+    client {
+        java {
+            srcDirs = [workDir.dir('client/java'), workDir.dir('brigadier/java')]
+        }
+    }
+    // The default main source set (src/main/java, src/main/resources) IS the
+    // built-in Fabric mod: Lumance's own mixins + entrypoint. It ships inside
+    // the bootstrap and is always loaded via fabric.addMods (see assembleBootstrap).
+}
+
+dependencies {
+    // Brigadier is compiled from editable sources (see below), so its binary is
+    // excluded everywhere: it must never shadow - or duplicate - those classes.
+    serverImplementation fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar'], exclude: ['**/brigadier/**'])
+    clientImplementation fileTree(dir: cacheDir.dir('client-libs'), include: ['**/*.jar'], exclude: ['**/brigadier/**'])
+    // Shared game code lives in the server tree only; the client resolves it
+    // from the compiled server classes (which also orders the compile after it).
+    clientImplementation sourceSets.server.output
+    // Compile-only annotation libraries Mojang uses but does not ship in the game jars
+    // (same set NeoForm declares for this version).
+    serverCompileOnly 'com.google.code.findbugs:jsr305:3.0.2'
+    serverCompileOnly 'org.jetbrains:annotations:26.0.2-1'
+    clientCompileOnly 'com.google.code.findbugs:jsr305:3.0.2'
+    clientCompileOnly 'org.jetbrains:annotations:26.0.2-1'
+    // Built-in mod compiles against the patched server classes, the game
+    // libraries and the Fabric stack (loader API + mixin annotations).
+    implementation sourceSets.server.output
+    implementation fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar'], exclude: ['**/brigadier/**'])
+    implementation "net.fabricmc:fabric-loader:${project.findProperty('fabricLoaderVersion')}"
+    implementation "net.fabricmc:sponge-mixin:${project.findProperty('fabricMixinVersion')}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = javaVersion
+}
+
+// The default jar would be empty (sources live in the server source set) - disable it.
+tasks.named('jar') {
+    enabled = false
+}
+
+// ---------------------------------------------------------------------------
+// Vanilla handling
+// ---------------------------------------------------------------------------
+
+tasks.register('resolveVanilla', lumance.build.ResolveVanillaTask) {
+    group = 'lumance'
+    description = 'Resolves the vanilla server bundle through Mojang\'s version manifest.'
+    mcVersion.set(project.findProperty('mcVersion'))
+    manifestUrl.set(project.findProperty('versionManifestUrl'))
+    bundleUrlOverride.set(project.findProperty('vanillaBundleUrl') ?: '')
+    bundleSha1Override.set(project.findProperty('vanillaBundleSha1') ?: '')
+    output.set(cacheDir.file('vanilla.properties'))
+    versionJson.set(cacheDir.file('version.json'))
+}
+
+tasks.register('downloadBundle', lumance.build.DownloadTask) {
+    group = 'lumance'
+    description = 'Downloads the vanilla server bundle from Mojang.'
+    propsFile.set(cacheDir.file('vanilla.properties'))
+    urlKey.set('bundle.url')
+    sha1Key.set('bundle.sha1')
+    output.set(cacheDir.file('bundle.jar'))
+    dependsOn('resolveVanilla')
+}
+
+tasks.register('extractBundle', lumance.build.ExtractBundleTask) {
+    group = 'lumance'
+    description = 'Extracts the nested server jar and libraries from the vanilla bundle.'
+    bundle.set(cacheDir.file('bundle.jar'))
+    serverJar.set(cacheDir.file('server.jar'))
+    libsDir.set(cacheDir.dir('libs'))
+    extractedProps.set(cacheDir.file('extracted.properties'))
+    libsIndex.set(cacheDir.file('libs.index'))
+    dependsOn('downloadBundle')
+}
+
+// ---------------------------------------------------------------------------
+// Patch workflow
+// ---------------------------------------------------------------------------
+
+// The -cfg file lists the game libraries for the decompiler, one -e=<jar> per
+// line (same format PaperMC's paperweight generates). This is resolution-only:
+// game classes decompile with explicit casts that the fixup patches expect.
+tasks.register('writeDecompilerClasspath') {
+    group = 'lumance'
+    description = 'Writes the library list passed to the decompiler (-cfg).'
+    def output = cacheDir.file('decompiler-classpath.txt')
+    inputs.dir(cacheDir.dir('libs'))
+    outputs.file(output)
+    dependsOn('extractBundle')
+    doLast {
+        def libs = fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar']).files.collect { "-e=${it.absolutePath}" }.sort()
+        output.asFile.text = libs.join('\n') + '\n'
+    }
+}
+
+tasks.register('decompile', JavaExec) {
+    group = 'lumance'
+    description = 'Decompiles the vanilla server jar (NeoForm decompiler recipe).'
+    classpath = configurations.decompiler
+    mainClass = 'org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler'
+    maxHeapSize = '8g'
+    args = [
+            '--decompile-inner',
+            '--remove-bridge',
+            '--decompile-generics',
+            '--ascii-strings',
+            '--remove-synthetic',
+            '--include-classpath',
+            '--ignore-invalid-bytecode',
+            '--bytecode-source-mapping',
+            '--dump-code-lines',
+            '--indent-string=    ',
+            '--log-level=WARN',
+            '-cfg',
+            cacheDir.file('decompiler-classpath.txt').asFile.absolutePath,
+            cacheDir.file('server.jar').asFile.absolutePath,
+            cacheDir.dir('raw-sources').asFile.absolutePath,
+    ]
+    inputs.file(cacheDir.file('server.jar'))
+    inputs.file(cacheDir.file('decompiler-classpath.txt'))
+    outputs.dir(cacheDir.dir('raw-sources'))
+    dependsOn('extractBundle', 'writeDecompilerClasspath')
+}
+
+tasks.register('fetchNeoForm', lumance.build.FetchNeoFormTask) {
+    group = 'lumance'
+    description = 'Fetches the pinned NeoForm artifact (decompile fixup patches).'
+    neoformVersion.set(project.findProperty('neoformVersion'))
+    outputDir.set(cacheDir.dir('neoform'))
+}
+
+tasks.register('prepareCleanSources', lumance.build.PrepareCleanSourcesTask) {
+    group = 'lumance'
+    description = 'Builds work/cache/clean-sources: raw decompile plus NeoForm fixups.'
+    rawSources.set(cacheDir.dir('raw-sources'))
+    patchesDir.set(cacheDir.dir('neoform/patches'))
+    cleanSources.set(cacheDir.dir('clean-sources'))
+    marker.set(cacheDir.file('.clean-marker'))
+    dependsOn('decompile', 'fetchNeoForm')
+}
+
+tasks.register('syncSources', Copy) {
+    group = 'lumance'
+    description = 'Copies clean decompiled sources to work/main/java for editing.'
+    includeEmptyDirs = false
+    from(cacheDir.dir('clean-sources')) {
+        include '**/*.java'
+    }
+    into(workDir.dir('main/java'))
+    dependsOn('prepareCleanSources')
+    // Never wipe user edits on repeat runs unless explicitly refreshed.
+    onlyIf { !workDir.dir('main/java').asFile.exists() || project.hasProperty('refreshSources') }
+    doFirst {
+        if (project.hasProperty('refreshSources')) {
+            project.delete(workDir.dir('main/java'))
+        }
+    }
+    // A fresh copy means nothing is applied yet; the marker is rebuilt by applyPatches.
+    doLast { cacheDir.file('applied-server-patches.txt').asFile.delete() }
+}
+
+// All Lumance patches live in one tree mirroring package layout; each task
+// only touches the paths of its own track (see PatchTracks in buildSrc).
+tasks.register('applyPatches', lumance.build.ApplyPatchesTask) {
+    group = 'lumance'
+    description = 'Applies server-track patches/*.patch onto work/main/java.'
+    patchedSources.set(workDir.dir('main/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    cleanSources.set(cacheDir.dir('clean-sources'))
+    markerFile.set(cacheDir.file('applied-server-patches.txt'))
+    track.set('SERVER')
+    dependsOn('syncSources')
+}
+
+tasks.register('setup') {
+    group = 'lumance'
+    description = 'One-time setup: download, decompile and patch game sources for editing.'
+    dependsOn('applyPatches', 'applyClientPatches', 'applyBrigadierPatches')
+}
+
+tasks.register('genPatches', lumance.build.GenPatchesTask) {
+    group = 'lumance'
+    description = 'Regenerates server-track patches/*.patch from edits in work/main/java.'
+    cleanSources.set(cacheDir.dir('clean-sources'))
+    patchedSources.set(workDir.dir('main/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    workDirectory.set(workDir)
+    stateName.set('genpatches-state.txt')
+    track.set('SERVER')
+    dependsOn('prepareCleanSources')
+}
+
+tasks.register('genPatchesClient', lumance.build.GenPatchesTask) {
+    group = 'lumance'
+    description = 'Regenerates client-track patches/*.patch from edits in work/client/java.'
+    cleanSources.set(cacheDir.dir('clean-client-sources'))
+    patchedSources.set(workDir.dir('client/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    workDirectory.set(workDir)
+    stateName.set('genpatches-client-state.txt')
+    track.set('CLIENT')
+    dependsOn('prepareClientSources')
+}
+
+tasks.register('genPatchesBrigadier', lumance.build.GenPatchesTask) {
+    group = 'lumance'
+    description = 'Regenerates brigadier-track patches/*.patch from edits in work/brigadier/java.'
+    cleanSources.set(cacheDir.dir('brigadier-sources'))
+    patchedSources.set(workDir.dir('brigadier/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    workDirectory.set(workDir)
+    stateName.set('genpatches-brigadier-state.txt')
+    track.set('BRIGADIER')
+    dependsOn('decompileBrigadier')
+}
+
+// The three generators share the patches/ tree, so order them deterministically.
+tasks.named('genPatchesClient') {
+    mustRunAfter('genPatches')
+}
+tasks.named('genPatchesBrigadier') {
+    mustRunAfter('genPatchesClient')
+}
+
+// ---------------------------------------------------------------------------
+// Client (same shape as the server: download, decompile, patch, compile).
+// Running the client needs assets, natives and auth and is out of scope;
+// this track exists so client code stays viewable, editable and compilable.
+// ---------------------------------------------------------------------------
+
+tasks.register('downloadClient', lumance.build.DownloadTask) {
+    group = 'lumance'
+    description = 'Downloads the vanilla client jar from Mojang.'
+    propsFile.set(cacheDir.file('vanilla.properties'))
+    urlKey.set('client.url')
+    sha1Key.set('client.sha1')
+    output.set(cacheDir.file('client.jar'))
+    dependsOn('resolveVanilla')
+}
+
+tasks.register('resolveClientLibraries', lumance.build.ResolveClientLibrariesTask) {
+    group = 'lumance'
+    description = 'Downloads this OS client library set from Mojang.'
+    versionJson.set(cacheDir.file('version.json'))
+    libsDir.set(cacheDir.dir('client-libs'))
+    libsIndex.set(cacheDir.file('client-libs.index'))
+    dependsOn('resolveVanilla')
+}
+
+tasks.register('writeDecompilerClientClasspath') {
+    group = 'lumance'
+    description = 'Writes the client library list passed to the decompiler (-cfg).'
+    def output = cacheDir.file('decompiler-client-classpath.txt')
+    inputs.dir(cacheDir.dir('client-libs'))
+    outputs.file(output)
+    dependsOn('resolveClientLibraries')
+    doLast {
+        def libs = fileTree(dir: cacheDir.dir('client-libs'), include: ['**/*.jar']).files.collect { "-e=${it.absolutePath}" }.sort()
+        output.asFile.text = libs.join('\n') + '\n'
+    }
+}
+
+tasks.register('decompileClient', JavaExec) {
+    group = 'lumance'
+    description = 'Decompiles the vanilla client jar.'
+    classpath = configurations.decompiler
+    mainClass = 'org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler'
+    maxHeapSize = '8g'
+    args = [
+            '--decompile-inner',
+            '--remove-bridge',
+            '--decompile-generics',
+            '--ascii-strings',
+            '--remove-synthetic',
+            '--include-classpath',
+            '--ignore-invalid-bytecode',
+            '--bytecode-source-mapping',
+            '--dump-code-lines',
+            '--indent-string=    ',
+            '--log-level=WARN',
+            '-cfg',
+            cacheDir.file('decompiler-client-classpath.txt').asFile.absolutePath,
+            cacheDir.file('client.jar').asFile.absolutePath,
+            cacheDir.dir('raw-client-sources').asFile.absolutePath,
+    ]
+    inputs.file(cacheDir.file('client.jar'))
+    inputs.file(cacheDir.file('decompiler-client-classpath.txt'))
+    outputs.dir(cacheDir.dir('raw-client-sources'))
+    dependsOn('downloadClient', 'writeDecompilerClientClasspath')
+}
+
+tasks.register('prepareClientSources', lumance.build.PrepareCleanSourcesTask) {
+    group = 'lumance'
+    description = 'Builds work/cache/clean-client-sources: raw decompile plus NeoForm fixups.'
+    rawSources.set(cacheDir.dir('raw-client-sources'))
+    patchesDir.set(cacheDir.dir('neoform/client-patches'))
+    extraPatchesDirs.from(cacheDir.dir('neoform/patches'))
+    // Files identical to the server tree are dropped: the server owns shared code.
+    sharedSources.set(cacheDir.dir('clean-sources'))
+    cleanSources.set(cacheDir.dir('clean-client-sources'))
+    marker.set(cacheDir.file('.clean-client-marker'))
+    dependsOn('decompileClient', 'fetchNeoForm', 'prepareCleanSources')
+}
+
+tasks.register('syncClientSources', Copy) {
+    group = 'lumance'
+    description = 'Copies clean client sources to work/client/java for editing.'
+    includeEmptyDirs = false
+    from(cacheDir.dir('clean-client-sources')) {
+        include '**/*.java'
+    }
+    into(workDir.dir('client/java'))
+    dependsOn('prepareClientSources')
+    // Never wipe user edits on repeat runs unless explicitly refreshed.
+    onlyIf { !workDir.dir('client/java').asFile.exists() || project.hasProperty('refreshSources') }
+    doFirst {
+        if (project.hasProperty('refreshSources')) {
+            project.delete(workDir.dir('client/java'))
+        }
+    }
+    // A fresh copy means nothing is applied yet; the marker is rebuilt by applyClientPatches.
+    doLast { cacheDir.file('applied-client-patches.txt').asFile.delete() }
+}
+
+tasks.register('applyClientPatches', lumance.build.ApplyPatchesTask) {
+    group = 'lumance'
+    description = 'Applies client-track patches/*.patch onto work/client/java.'
+    patchedSources.set(workDir.dir('client/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    cleanSources.set(cacheDir.dir('clean-client-sources'))
+    markerFile.set(cacheDir.file('applied-client-patches.txt'))
+    track.set('CLIENT')
+    dependsOn('syncClientSources')
+}
+
+tasks.register('repackClient', lumance.build.RepackTask) {
+    group = 'lumance'
+    description = 'Builds the patched client jar (vanilla + compiled classes).'
+    baseJar.set(cacheDir.file('client.jar'))
+    classesDirs.from(sourceSets.client.output.classesDirs)
+    lumanceVersion.set(project.version.toString())
+    mcVersion.set(project.findProperty('mcVersion'))
+    outputJar.set(layout.buildDirectory.file('patched/lumance-client.jar'))
+    dependsOn('compileClientJava', 'downloadClient')
+}
+
+// ---------------------------------------------------------------------------
+// Brigadier (Mojang's command library, decompiled editable - no public sources exist)
+// ---------------------------------------------------------------------------
+
+tasks.register('decompileBrigadier', JavaExec) {
+    group = 'lumance'
+    description = 'Decompiles the bundled brigadier jar into editable sources.'
+    classpath = configurations.decompiler
+    mainClass = 'org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler'
+    maxHeapSize = '2g'
+    // The exact jar is resolved at execution time; the version follows the bundle.
+    inputs.files(fileTree(dir: cacheDir.dir('libs'), include: ['**/brigadier/**/*.jar']))
+    outputs.dir(cacheDir.dir('brigadier-sources'))
+    dependsOn('extractBundle')
+    doFirst {
+        def found = fileTree(dir: cacheDir.dir('libs'), include: ['**/brigadier/**/*.jar']).files
+        if (found.isEmpty()) {
+            throw new GradleException('brigadier jar not found under work/cache/libs - run `gradlew setup` first.')
+        }
+        args = ['--indent-string=    ', '--log-level=WARN',
+                found.first().absolutePath, cacheDir.dir('brigadier-sources').asFile.absolutePath]
+    }
+}
+
+tasks.register('syncBrigadierSources', Copy) {
+    group = 'lumance'
+    description = 'Copies decompiled brigadier to work/brigadier/java for editing.'
+    includeEmptyDirs = false
+    from(cacheDir.dir('brigadier-sources')) {
+        include '**/*.java'
+    }
+    into(workDir.dir('brigadier/java'))
+    dependsOn('decompileBrigadier')
+    // Never wipe user edits on repeat runs unless explicitly refreshed.
+    onlyIf { !workDir.dir('brigadier/java').asFile.exists() || project.hasProperty('refreshSources') }
+    doFirst {
+        if (project.hasProperty('refreshSources')) {
+            project.delete(workDir.dir('brigadier/java'))
+        }
+    }
+    // A fresh copy means nothing is applied yet; the marker is rebuilt by applyBrigadierPatches.
+    doLast { cacheDir.file('applied-brigadier-patches.txt').asFile.delete() }
+}
+
+tasks.register('applyBrigadierPatches', lumance.build.ApplyPatchesTask) {
+    group = 'lumance'
+    description = 'Applies brigadier-track patches/*.patch onto work/brigadier/java.'
+    patchedSources.set(workDir.dir('brigadier/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    cleanSources.set(cacheDir.dir('brigadier-sources'))
+    markerFile.set(cacheDir.file('applied-brigadier-patches.txt'))
+    track.set('BRIGADIER')
+    dependsOn('syncBrigadierSources')
+}
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
+tasks.named('compileServerJava') {
+    options.forkOptions.memoryMaximumSize = '2g'
+    options.compilerArgs.addAll(['-Xmaxerrs', '5000', '-Xmaxwarns', '5000'])
+    // The serverImplementation fileTree (work/libs) is produced by extractBundle,
+    // and brigadier comes from editable sources via applyBrigadierPatches.
+    dependsOn('extractBundle', 'applyBrigadierPatches')
+    doFirst {
+        if (!workDir.dir('main/java').asFile.isDirectory()) {
+            throw new GradleException('work/main/java is missing - run `gradlew setup` first.')
+        }
+    }
+}
+
+tasks.named('compileClientJava') {
+    options.forkOptions.memoryMaximumSize = '2g'
+    options.compilerArgs.addAll(['-Xmaxerrs', '5000', '-Xmaxwarns', '5000'])
+    dependsOn('resolveClientLibraries', 'applyClientPatches', 'applyBrigadierPatches')
+    doFirst {
+        if (!workDir.dir('client/java').asFile.isDirectory()) {
+            throw new GradleException('work/client/java is missing - run `gradlew setup` first.')
+        }
+    }
+}
+
+tasks.register('repack', lumance.build.RepackTask) {
+    group = 'lumance'
+    description = 'Builds the raw patched server jar (vanilla + compiled classes).'
+    baseJar.set(cacheDir.file('server.jar'))
+    classesDirs.from(sourceSets.server.output.classesDirs)
+    lumanceVersion.set(project.version.toString())
+    mcVersion.set(project.findProperty('mcVersion'))
+    outputJar.set(layout.buildDirectory.file('patched/lumance-server-raw.jar'))
+    dependsOn('compileServerJava', 'extractBundle')
+}
+
+tasks.register('makeOverlay', lumance.build.OverlayDiffTask) {
+    group = 'lumance'
+    description = 'Diffs vanilla vs patched server jar into a runtime overlay patch.'
+    baseJar.set(cacheDir.file('server.jar'))
+    patchedJar.set(layout.buildDirectory.file('patched/lumance-server-raw.jar'))
+    overlayDir.set(layout.buildDirectory.dir('overlay'))
+    dependsOn('repack')
+}
+
+tasks.register('canonicalPatched', lumance.build.CanonicalPatchedTask) {
+    group = 'lumance'
+    description = 'Rebuilds the patched server jar with the exact launcher algorithm.'
+    baseJar.set(cacheDir.file('server.jar'))
+    overlayDir.set(layout.buildDirectory.dir('overlay'))
+    outputJar.set(layout.buildDirectory.file('patched/lumance-server.jar'))
+    dependsOn('makeOverlay')
+}
+
+tasks.register('resolveFabric', Copy) {
+    group = 'lumance'
+    description = 'Stages the Fabric Loader stack for the bootstrap manifest.'
+    from(configurations.fabricLibraries)
+    into(layout.buildDirectory.dir('fabric-libs'))
+}
+
+tasks.register('resolveFabricMods', Copy) {
+    group = 'lumance'
+    description = 'Stages the mods bundled with Lumance (e.g. Fabric API) for the bootstrap manifest.'
+    from(configurations.fabricMods)
+    into(layout.buildDirectory.dir('fabric-mods'))
+}
+
+// Built-in mod resources carry version placeholders (${LUMANCE_VERSION} etc.).
+tasks.named('processResources') {
+    filesMatching('fabric.mod.json') {
+        expand('LUMANCE_VERSION': project.version.toString(), 'MC_VERSION': project.findProperty('mcVersion'))
+    }
+}
+
+tasks.named('compileJava') {
+    options.forkOptions.memoryMaximumSize = '2g'
+    // Game classes come from the compiled server tree; game libs resolve the rest.
+    dependsOn('extractBundle', 'compileServerJava')
+    doFirst {
+        if (!workDir.dir('main/java').asFile.isDirectory()) {
+            throw new GradleException('work/main/java is missing - run `gradlew setup` first.')
+        }
+    }
+}
+
+tasks.register('modJar', Jar) {
+    group = 'lumance'
+    description = 'Builds the built-in Lumance Fabric mod (mixins + entrypoint).'
+    archiveBaseName = 'lumance-mod'
+    archiveVersion = ''
+    archiveClassifier = ''
+    destinationDirectory = layout.buildDirectory.dir('mod')
+    from(sourceSets.main.output)
+}
+
+tasks.register('writeBootstrapManifest', lumance.build.WriteBootstrapManifestTask) {
+    group = 'lumance'
+    description = 'Writes the lumance.properties manifest embedded in the bootstrap jar.'
+    vanillaProps.set(cacheDir.file('vanilla.properties'))
+    extractedProps.set(cacheDir.file('extracted.properties'))
+    libsIndex.set(cacheDir.file('libs.index'))
+    baseJar.set(cacheDir.file('server.jar'))
+    patchedJar.set(layout.buildDirectory.file('patched/lumance-server.jar'))
+    fabricCoordinates.set(fabricCoords.join(','))
+    fabricLibsDir.set(layout.buildDirectory.dir('fabric-libs'))
+    bundledModCoordinates.set(bundledModCoords.join(','))
+    bundledModsDir.set(layout.buildDirectory.dir('fabric-mods'))
+    log4jConfig.set(layout.projectDirectory.file('server-files/log4j2.xml'))
+    modJar.set(layout.buildDirectory.file('mod/lumance-mod.jar'))
+    lumanceVersion.set(project.version.toString())
+    output.set(layout.buildDirectory.file('bootstrap/lumance.properties'))
+    dependsOn('canonicalPatched', 'resolveFabric', 'resolveFabricMods', 'modJar')
+}
+
+tasks.register('assembleBootstrap', Jar) {
+    group = 'lumance'
+    description = 'Assembles the paperclip-style bootstrap jar (launcher + patch, no Mojang code).'
+    archiveBaseName = 'lumance'
+    archiveVersion = mcVer
+    archiveClassifier = 'server'
+    destinationDirectory = layout.buildDirectory.dir('dist')
+    from({ zipTree(project(':launcher').tasks.named('jar').get().archiveFile.get().asFile) })
+    from(layout.buildDirectory.dir('overlay')) {
+        into 'lumance/overlay'
+    }
+    from(layout.buildDirectory.file('bootstrap/lumance.properties'))
+    // Built-in mod ships inside the bootstrap; the launcher extracts it to
+    // cache/ and loads it via fabric.addMods on every boot.
+    from(layout.buildDirectory.file('mod/lumance-mod.jar')) {
+        into 'lumance'
+        rename { 'mod.jar' }
+    }
+    // Console logging config; the launcher extracts it to cache/ and points
+    // log4j at it (vanilla config stays untouched inside its own jar).
+    from('server-files/log4j2.xml') {
+        into 'lumance'
+    }
+    manifest {
+        attributes(
+                'Main-Class': 'gr1mly4memes.launcher.lumance.Main',
+                'Implementation-Title': 'Lumance',
+                'Implementation-Version': project.version.toString()
+        )
+    }
+    dependsOn(project(':launcher').tasks.named('jar'), 'writeBootstrapManifest', 'modJar')
+}
+
+tasks.named('build') {
+    dependsOn('assembleBootstrap', 'repackClient')
+}
+
+// ---------------------------------------------------------------------------
+// Dev run (uses the full patched jar directly, no bootstrap involved)
+// ---------------------------------------------------------------------------
+
+tasks.register('runServer', JavaExec) {
+    group = 'lumance'
+    description = 'Runs the patched server directly from the build (dev loop).'
+    classpath = files(layout.buildDirectory.file('patched/lumance-server.jar'), fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar']))
+    mainClass = 'net.minecraft.server.Main'
+    workingDir = layout.projectDirectory.dir('run')
+    args((project.findProperty('serverArgs') ?: 'nogui').toString().split(' ').toList())
+    jvmArgs((project.findProperty('jvmArgs') ?: '-Xmx4G').toString().split(' ').toList())
+    standardInput = System.in
+    dependsOn('repack', 'extractBundle')
+    doFirst {
+        mkdir(workingDir)
+    }
+}
+
+tasks.register('runFabricServer', JavaExec) {
+    group = 'lumance'
+    description = 'Runs the patched server through Fabric Loader with the built-in mods (dev loop).'
+    classpath = files(configurations.fabricLibraries, layout.buildDirectory.file('patched/lumance-server.jar'),
+            fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar']))
+    mainClass = 'net.fabricmc.loader.impl.launch.knot.KnotServer'
+    workingDir = layout.projectDirectory.dir('run')
+    args((project.findProperty('serverArgs') ?: 'nogui').toString().split(' ').toList())
+    jvmArgs((project.findProperty('jvmArgs') ?: '-Xmx4G').toString().split(' ').toList())
+    standardInput = System.in
+    dependsOn('canonicalPatched', 'modJar', 'resolveFabricMods', 'extractBundle')
+    doFirst {
+        mkdir(workingDir)
+        List<String> addMods = [layout.buildDirectory.file('mod/lumance-mod.jar').get().asFile.absolutePath]
+        fileTree(dir: layout.buildDirectory.dir('fabric-mods'), include: ['*.jar']).files.each {
+            addMods.add(it.absolutePath)
+        }
+        systemProperty('fabric.addMods', addMods.join(File.pathSeparator))
+        systemProperty('log4j.configurationFile', layout.projectDirectory.file('server-files/log4j2.xml').asFile.absolutePath)
+        systemProperty('log4j.skipJansi', true)
+    }
+}

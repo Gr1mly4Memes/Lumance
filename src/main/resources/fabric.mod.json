@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "lumance",
+  "version": "${LUMANCE_VERSION}",
+  "name": "Lumance",
+  "environment": "server",
+  "entrypoints": {
+    "server": [
+      "gr1mly4memes.lumance.LumanceMod"
+    ]
+  },
+  "mixins": [
+    "lumance.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "${MC_VERSION}"
+  }
+}

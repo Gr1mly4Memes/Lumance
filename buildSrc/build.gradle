@@ -1,0 +1,15 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Only used to parse Mojang's version manifest / version JSON.
+    implementation 'com.google.code.gson:gson:2.14.0'
+    // Patch engine (same one NeoForm uses): reads NeoForm's native patch format
+    // and applies with offset tolerance. Replaces git for fixup application.
+    implementation 'io.codechicken:DiffPatch:2.1.0.43'
+}

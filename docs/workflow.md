@@ -51,6 +51,22 @@ gradlew runServer -PserverArgs="nogui"   # pass server args
 gradlew setup -PrefreshSources # discard local edits and re-extract clean sources
 ```
 
+## IDE setup
+
+`work/` doesn't exist until `setup` runs, so the order matters (this is the
+same deal as NeoForm's "reload the gradle project in your IDE" step):
+
+1. Run `gradlew setup` first and let it finish green.
+2. In IntelliJ, **Reload All Gradle Projects** from the Gradle tool window
+   (the circular-arrows icon - a plain file reload is not enough), and wait
+   for the sync to finish without errors.
+3. Expect `work/main [server]`, `work/client [client]`, `work/brigadier`
+   as source roots with `work/cache` excluded. The CLI build
+   (`gradlew compileServerJava`) is the ground truth: if it passes and the
+   editor still shows red, the IDE model is stale - check the sync output,
+   confirm the Project SDK is 25, and use File → Invalidate Caches as the
+   last resort.
+
 One incremental-build gotcha: after editing anything under `buildSrc/`,
 downstream tasks may still report UP-TO-DATE and reuse stale outputs. Force
 the affected chain once, e.g. after a `RepackTask` change:

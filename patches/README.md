@@ -38,6 +38,11 @@ Three outcomes:
   `fuzzyApplyBrigadierPatches`) for one fuzzy attempt per file; anything it
   catches is named loudly in the log. Run the matching `genPatches*` right
   after to rebase into exact patches.
+- Half-placeable (some hunks anchor on code that only exists upstream, e.g.
+  Paper-only methods) → the fuzzy tasks apply what lands and park the rest in
+  `work/rejects/`, mirroring the source layout
+  (`work/rejects/net/minecraft/commands/Commands.java.rej`). Hand-port those
+  hunks, then `genPatches*` to fold everything into exact patches.
 - Truly conflicting → the build fails on that file instead of corrupting it,
   fuzzy or not.
 
@@ -56,6 +61,9 @@ emits, e.g.:
 
 Plain `git diff` output is *not* understood. Easiest reliable route to that
 shape: make the edit in `work/`, run `genPatches*`, keep the file it writes.
+(A dropped file missing the `.java` part, e.g. `AdvancementHolder.patch`,
+is resolved to its `.java` target automatically; anything else fails loudly
+with the expected path.)
 
 Patches are the source of truth:
 

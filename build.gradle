@@ -270,6 +270,7 @@ tasks.register('fuzzyApplyPatches', lumance.build.ApplyPatchesTask) {
     markerFile.set(cacheDir.file('applied-server-patches.txt'))
     track.set('SERVER')
     fuzzy.set(true)
+    rejectsDir.set(workDir.dir('rejects').asFile.absolutePath)
     dependsOn('syncSources')
 }
 
@@ -282,6 +283,7 @@ tasks.register('fuzzyApplyClientPatches', lumance.build.ApplyPatchesTask) {
     markerFile.set(cacheDir.file('applied-client-patches.txt'))
     track.set('CLIENT')
     fuzzy.set(true)
+    rejectsDir.set(workDir.dir('rejects').asFile.absolutePath)
     dependsOn('syncClientSources')
 }
 
@@ -294,6 +296,7 @@ tasks.register('fuzzyApplyBrigadierPatches', lumance.build.ApplyPatchesTask) {
     markerFile.set(cacheDir.file('applied-brigadier-patches.txt'))
     track.set('BRIGADIER')
     fuzzy.set(true)
+    rejectsDir.set(workDir.dir('rejects').asFile.absolutePath)
     dependsOn('syncBrigadierSources')
 }
 

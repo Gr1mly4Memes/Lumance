@@ -51,6 +51,14 @@ gradlew runServer -PserverArgs="nogui"   # pass server args
 gradlew setup -PrefreshSources # discard local edits and re-extract clean sources
 ```
 
+One incremental-build gotcha: after editing anything under `buildSrc/`,
+downstream tasks may still report UP-TO-DATE and reuse stale outputs. Force
+the affected chain once, e.g. after a `RepackTask` change:
+
+```bash
+gradlew build   # if outputs look stale, delete build/patched build/overlay build/bootstrap build/dist and rerun
+```
+
 ## Running a release
 
 Copy `build/dist/lumance-*-server.jar` (plus `run.sh` / `run.bat`) into an empty folder:

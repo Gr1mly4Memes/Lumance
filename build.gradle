@@ -247,6 +247,7 @@ tasks.register('applyPatches', lumance.build.ApplyPatchesTask) {
     cleanSources.set(cacheDir.dir('clean-sources'))
     markerFile.set(cacheDir.file('applied-server-patches.txt'))
     track.set('SERVER')
+    fuzzy.set(false)
     dependsOn('syncSources')
 }
 
@@ -254,6 +255,46 @@ tasks.register('setup') {
     group = 'lumance'
     description = 'One-time setup: download, decompile and patch game sources for editing.'
     dependsOn('applyPatches', 'applyClientPatches', 'applyBrigadierPatches')
+}
+
+// Opt-in fuzzy pass for hand-dropped patches (PaperMC-style): same trees and
+// markers as the strict tasks, plus one FUZZY attempt per file. Anything it
+// catches is reported loudly - run the matching genPatches* right after to
+// rebase into exact patches. True conflicts still fail the build.
+tasks.register('fuzzyApplyPatches', lumance.build.ApplyPatchesTask) {
+    group = 'lumance'
+    description = 'Applies server-track patches with fuzzy fallback for hand-dropped patches.'
+    patchedSources.set(workDir.dir('main/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    cleanSources.set(cacheDir.dir('clean-sources'))
+    markerFile.set(cacheDir.file('applied-server-patches.txt'))
+    track.set('SERVER')
+    fuzzy.set(true)
+    dependsOn('syncSources')
+}
+
+tasks.register('fuzzyApplyClientPatches', lumance.build.ApplyPatchesTask) {
+    group = 'lumance'
+    description = 'Applies client-track patches with fuzzy fallback for hand-dropped patches.'
+    patchedSources.set(workDir.dir('client/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    cleanSources.set(cacheDir.dir('clean-client-sources'))
+    markerFile.set(cacheDir.file('applied-client-patches.txt'))
+    track.set('CLIENT')
+    fuzzy.set(true)
+    dependsOn('syncClientSources')
+}
+
+tasks.register('fuzzyApplyBrigadierPatches', lumance.build.ApplyPatchesTask) {
+    group = 'lumance'
+    description = 'Applies brigadier-track patches with fuzzy fallback for hand-dropped patches.'
+    patchedSources.set(workDir.dir('brigadier/java'))
+    patchesDir.set(layout.projectDirectory.dir('patches'))
+    cleanSources.set(cacheDir.dir('brigadier-sources'))
+    markerFile.set(cacheDir.file('applied-brigadier-patches.txt'))
+    track.set('BRIGADIER')
+    fuzzy.set(true)
+    dependsOn('syncBrigadierSources')
 }
 
 tasks.register('genPatches', lumance.build.GenPatchesTask) {
@@ -408,6 +449,7 @@ tasks.register('applyClientPatches', lumance.build.ApplyPatchesTask) {
     cleanSources.set(cacheDir.dir('clean-client-sources'))
     markerFile.set(cacheDir.file('applied-client-patches.txt'))
     track.set('CLIENT')
+    fuzzy.set(false)
     dependsOn('syncClientSources')
 }
 
@@ -474,6 +516,7 @@ tasks.register('applyBrigadierPatches', lumance.build.ApplyPatchesTask) {
     cleanSources.set(cacheDir.dir('brigadier-sources'))
     markerFile.set(cacheDir.file('applied-brigadier-patches.txt'))
     track.set('BRIGADIER')
+    fuzzy.set(false)
     dependsOn('syncBrigadierSources')
 }
 

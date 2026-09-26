@@ -1,6 +1,8 @@
 .gradle
-build/
-out/
+/build/
+/buildSrc/build/
+/launcher/build/
+/out/
 
 # Lumance pipeline work dirs (downloaded vanilla, decompiled sources, extracted libs)
 work/

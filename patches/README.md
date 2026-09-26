@@ -7,8 +7,9 @@ e.g.:
 patches/net/minecraft/server/MinecraftServer.java.patch
 ```
 
-Patches are DiffPatch-format (same engine NeoForm uses), applied fuzzily. Each
-patch belongs to exactly one track by path:
+Patches are DiffPatch-format (same engine NeoForm uses), applied exactly, with
+an opt-in fuzzy pass (`fuzzyApplyPatches` and friends) for hand-dropped files.
+Each patch belongs to exactly one track by path:
 
 - `com/mojang/brigadier/**` → brigadier track (`work/brigadier/java`)
 - `net/minecraft/client/**`, `com/mojang/realmsclient/**`,
@@ -26,6 +27,35 @@ gradlew genPatchesClient      # same for work/client/java
 gradlew genPatchesBrigadier   # same for work/brigadier/java
 gradlew build           # compile + repack + build the bootstrap jar
 ```
+
+Dropping in a patch by hand (PaperMC-style) also works: put the file in this
+tree, then run `setup` (or the matching `apply*` task) for the strict pass.
+Three outcomes:
+
+- Applies exactly → silent, like any other patch.
+- Drifted but salvageable → strict `setup` fails loudly on that file. Run the
+  matching `fuzzyApply*` task (`fuzzyApplyPatches`, `fuzzyApplyClientPatches`,
+  `fuzzyApplyBrigadierPatches`) for one fuzzy attempt per file; anything it
+  catches is named loudly in the log. Run the matching `genPatches*` right
+  after to rebase into exact patches.
+- Truly conflicting → the build fails on that file instead of corrupting it,
+  fuzzy or not.
+
+Drop-ins must use DiffPatch's native format - the same shape `genPatches`
+emits, e.g.:
+
+```
+--- a/net/minecraft/server/Foo.java
++++ b/net/minecraft/server/Foo.java
+@@ -10,5 +_,5 @@
+     context line
+-    old line
++    new line // Lumance
+     context line
+```
+
+Plain `git diff` output is *not* understood. Easiest reliable route to that
+shape: make the edit in `work/`, run `genPatches*`, keep the file it writes.
 
 Patches are the source of truth:
 

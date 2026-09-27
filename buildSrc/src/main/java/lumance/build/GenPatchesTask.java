@@ -103,6 +103,9 @@ public abstract class GenPatchesTask extends DefaultTask {
                 continue;
             }
             String patch = diff(rel, cleanBytes, patchedBytes);
+            if (patch.isEmpty()) {
+                continue;
+            }
             patchFile.getParentFile().mkdirs();
             try (Writer writer = new OutputStreamWriter(new FileOutputStream(patchFile), StandardCharsets.UTF_8)) {
                 writer.write(patch);
@@ -162,8 +165,13 @@ public abstract class GenPatchesTask extends DefaultTask {
                     .lineEnding("\n")
                     .build()
                     .operate();
-            if (result.exit != 0) {
-                throw new IllegalStateException("Could not diff " + rel);
+            // DiffOperation uses diff-like exits: 0 = no changes, 1 = diff
+            // produced, -1 = error. A produced diff is success, not failure.
+            if (result.exit == 0) {
+                return "";
+            }
+            if (result.exit != 1) {
+                throw new IllegalStateException("Could not diff " + rel + " (exit " + result.exit + ")");
             }
             return Files.readString(tmp, StandardCharsets.UTF_8);
         } finally {

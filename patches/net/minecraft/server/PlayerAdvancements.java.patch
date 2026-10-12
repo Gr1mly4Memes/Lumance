@@ -1,0 +1,43 @@
+--- a/net/minecraft/server/PlayerAdvancements.java
++++ b/net/minecraft/server/PlayerAdvancements.java
+@@ -126,6 +_,7 @@
+     }
+ 
+     public void save() {
++        if (org.spigotmc.SpigotConfig.disableAdvancementSaving) return; // Spigot
+         JsonElement json = this.codec.encodeStart(JsonOps.INSTANCE, this.asData()).getOrThrow();
+ 
+         try {
+@@ -143,6 +_,7 @@
+         data.forEach((id, progress) -> {
+             AdvancementHolder advancement = manager.get(id);
+             if (advancement == null) {
++                if (!id.getNamespace().equals("minecraft")) return; // CraftBukkit
+                 LOGGER.warn("Ignored advancement '{}' in progress file {} - it doesn't exist anymore?", id, this.playerSavePath);
+             } else {
+                 this.startProgress(advancement, progress);
+@@ -166,11 +_,24 @@
+         boolean result = false;
+         AdvancementProgress progress = this.getOrStartProgress(holder);
+         boolean wasDone = progress.isDone();
++        // CraftBukkit start - fire PlayerAdvancementCriterionGrantEvent
++        CriterionProgress criterionProgress = progress.getCriterion(criterion);
++
++        if (criterionProgress != null && !criterionProgress.isDone()) {
++            org.bukkit.event.player.PlayerAdvancementCriterionGrantEvent event = new org.bukkit.event.player.PlayerAdvancementCriterionGrantEvent(this.player.getBukkitEntity(), holder.toBukkit(), criterion);
++            this.player.level().getCraftServer().getPluginManager().callEvent(event);
++            if (event.isCancelled()) {
++                return false;
++            }
++        }
++        // CraftBukkit end
++
+         if (progress.grantProgress(criterion)) {
+             this.unregisterListeners(holder);
+             this.progressChanged.add(holder);
+             result = true;
+             if (!wasDone && progress.isDone()) {
++                this.player.level().getCraftServer().getPluginManager().callEvent(new org.bukkit.event.player.PlayerAdvancementDoneEvent(this.player.getBukkitEntity(), holder.toBukkit())); // CraftBukkit
+                 holder.value().rewards().grant(this.player);
+                 holder.value().display().ifPresent(display -> {
+                     if (display.announceToChat() && this.player.level().getGameRules().get(GameRules.SHOW_ADVANCEMENT_MESSAGES)) {

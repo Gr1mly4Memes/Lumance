@@ -1,0 +1,16 @@
+--- a/net/minecraft/server/commands/DebugCommand.java
++++ b/net/minecraft/server/commands/DebugCommand.java
+@@ -188,6 +_,13 @@
+             }
+         }
+ 
++        // CraftBukkit start
++        @Override
++        public org.bukkit.command.CommandSender getBukkitSender(CommandSourceStack wrapper) {
++            return org.bukkit.craftbukkit.command.NullCommandSender.INSTANCE;
++        }
++        // CraftBukkit end
++
+         @Override
+         public void onCommand(int depth, String command) {
+             this.newLine();

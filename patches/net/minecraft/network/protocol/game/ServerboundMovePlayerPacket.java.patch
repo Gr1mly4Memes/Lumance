@@ -1,0 +1,13 @@
+--- a/net/minecraft/network/protocol/game/ServerboundMovePlayerPacket.java
++++ b/net/minecraft/network/protocol/game/ServerboundMovePlayerPacket.java
+@@ -16,8 +_,8 @@
+     protected final float xRot;
+     protected final boolean onGround;
+     protected final boolean horizontalCollision;
+-    protected final boolean hasPos;
+-    protected final boolean hasRot;
++    public final boolean hasPos; // CraftBukkit - public access
++    public final boolean hasRot; // CraftBukkit - public access
+ 
+     private static int packFlags(boolean onGround, boolean horizontalCollision) {
+         int flags = 0;

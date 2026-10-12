@@ -1,0 +1,19 @@
+--- a/net/minecraft/server/gui/MinecraftServerGui.java
++++ b/net/minecraft/server/gui/MinecraftServerGui.java
+@@ -150,6 +_,7 @@
+         this.finalizers.forEach(Runnable::run);
+     }
+ 
++    private static final java.util.regex.Pattern ANSI = java.util.regex.Pattern.compile("\\x1B\\[([0-9]{1,2}(;[0-9]{1,2})*)?[m|K]"); // CraftBukkit
+     public void print(JTextArea console, JScrollPane scrollPane, String line) {
+         if (!SwingUtilities.isEventDispatchThread()) {
+             SwingUtilities.invokeLater(() -> this.print(console, scrollPane, line));
+@@ -162,7 +_,7 @@
+             }
+ 
+             try {
+-                document.insertString(document.getLength(), line, null);
++                document.insertString(document.getLength(), ANSI.matcher(line).replaceAll(""), null); // CraftBukkit
+             } catch (BadLocationException var8) {
+             }
+ 

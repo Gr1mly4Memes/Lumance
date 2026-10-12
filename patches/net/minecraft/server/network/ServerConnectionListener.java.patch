@@ -1,0 +1,50 @@
+--- a/net/minecraft/server/network/ServerConnectionListener.java
++++ b/net/minecraft/server/network/ServerConnectionListener.java
+@@ -91,12 +_,23 @@
+                         )
+                         .group(eventLoopGroupHolder.eventLoopGroup())
+                         .localAddress(address, port)
++                        .option(ChannelOption.AUTO_READ, false) // CraftBukkit
+                         .bind()
+                         .syncUninterruptibly()
+                 );
+         }
+     }
+ 
++    // CraftBukkit start
++    public void acceptConnections() {
++        synchronized (this.channels) {
++            for (ChannelFuture future : this.channels) {
++                future.channel().config().setAutoRead(true);
++            }
++        }
++    }
++    // CraftBukkit end
++
+     public SocketAddress startMemoryChannel() {
+         ChannelFuture newChannel;
+         synchronized (this.channels) {
+@@ -168,6 +_,12 @@
+     public void tick() {
+         synchronized (this.connections) {
+             this.addPendingConnections();
++            // Spigot Start
++            // This prevents players from 'gaming' the server, and strategically relogging to increase their position in the tick order
++            if (org.spigotmc.SpigotConfig.playerShuffle > 0 && MinecraftServer.currentTick % org.spigotmc.SpigotConfig.playerShuffle == 0) {
++                Collections.shuffle(this.connections);
++            }
++            // Spigot End
+             Iterator<Connection> iterator = this.connections.iterator();
+ 
+             while (iterator.hasNext()) {
+@@ -187,6 +_,10 @@
+                             connection.setReadOnly();
+                         }
+                     } else {
++                        // Spigot Start
++                        // Fix a race condition where a NetworkManager could be unregistered just before connection.
++                        if (connection.preparing) continue;
++                        // Spigot End
+                         iterator.remove();
+                         connection.handleDisconnection();
+                     }

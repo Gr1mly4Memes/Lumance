@@ -1,0 +1,20 @@
+--- a/net/minecraft/server/level/ServerBossEvent.java
++++ b/net/minecraft/server/level/ServerBossEvent.java
+@@ -15,7 +_,7 @@
+ public class ServerBossEvent extends BossEvent {
+     private final Set<ServerPlayer> players = Sets.newHashSet();
+     private final Set<ServerPlayer> unmodifiablePlayers = Collections.unmodifiableSet(this.players);
+-    private boolean visible = true;
++    public boolean visible = true; // CraftBukkit - public access
+ 
+     public ServerBossEvent(UUID id, Component name, BossEvent.BossBarColor color, BossEvent.BossBarOverlay overlay) {
+         super(id, name, color, overlay);
+@@ -90,7 +_,7 @@
+         }
+     }
+ 
+-    private void broadcast(Function<BossEvent, ClientboundBossEventPacket> factory) {
++    public void broadcast(Function<BossEvent, ClientboundBossEventPacket> factory) { // CraftBukkit - public access
+         if (this.visible) {
+             ClientboundBossEventPacket packet = factory.apply(this);
+ 

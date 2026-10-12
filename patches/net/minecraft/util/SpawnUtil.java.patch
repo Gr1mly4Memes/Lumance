@@ -1,0 +1,31 @@
+--- a/net/minecraft/util/SpawnUtil.java
++++ b/net/minecraft/util/SpawnUtil.java
+@@ -27,6 +_,12 @@
+         SpawnUtil.Strategy strategy,
+         boolean checkCollisions
+     ) {
++        // CraftBukkit start
++        return trySpawnMob(entityType, spawnReason, level, start, spawnAttempts, spawnRangeXZ, spawnRangeY, strategy, checkCollisions, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.DEFAULT);
++    }
++
++    public static <T extends Mob> Optional<T> trySpawnMob(EntityType<T> entityType, EntitySpawnReason spawnReason, ServerLevel level, BlockPos start, int spawnAttempts, int spawnRangeXZ, int spawnRangeY, SpawnUtil.Strategy strategy, boolean checkCollisions, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason reason) {
++        // CraftBukkit end
+         BlockPos.MutableBlockPos searchPos = start.mutable();
+         RandomSource random = level.getRandom();
+ 
+@@ -40,12 +_,13 @@
+                 T mob = (T)entityType.create(level, null, searchPos, spawnReason, false, false);
+                 if (mob != null) {
+                     if (mob.checkSpawnRules(level, spawnReason) && mob.checkSpawnObstruction(level)) {
+-                        level.addFreshEntityWithPassengers(mob);
++                        level.addFreshEntityWithPassengers(mob, reason); // CraftBukkit
++                        if (mob.isRemoved()) return Optional.empty(); // CraftBukkit
+                         mob.playAmbientSound();
+                         return Optional.of(mob);
+                     }
+ 
+-                    mob.discard();
++                    mob.discard(null); // CraftBukkit - add Bukkit remove cause
+                 }
+             }
+         }

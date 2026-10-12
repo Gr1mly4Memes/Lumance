@@ -1,0 +1,18 @@
+--- a/net/minecraft/network/protocol/game/ServerboundUseItemOnPacket.java
++++ b/net/minecraft/network/protocol/game/ServerboundUseItemOnPacket.java
+@@ -8,7 +_,14 @@
+ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.phys.BlockHitResult;
+ 
+-public record ServerboundUseItemOnPacket(InteractionHand hand, BlockHitResult hitResult, int sequence) implements Packet<ServerGamePacketListener> {
++// Spigot start
++public record ServerboundUseItemOnPacket(InteractionHand hand, BlockHitResult hitResult, int sequence, long timestamp) implements Packet<ServerGamePacketListener> {
++
++    public ServerboundUseItemOnPacket(InteractionHand hand, BlockHitResult hitResult, int sequence) {
++        this(hand, hitResult, sequence, System.currentTimeMillis());
++    }
++    // Spigot end
++
+     public static final StreamCodec<FriendlyByteBuf, ServerboundUseItemOnPacket> STREAM_CODEC = StreamCodec.composite(
+         InteractionHand.STREAM_CODEC,
+         ServerboundUseItemOnPacket::hand,

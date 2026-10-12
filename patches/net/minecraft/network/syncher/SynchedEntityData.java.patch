@@ -1,0 +1,16 @@
+--- a/net/minecraft/network/syncher/SynchedEntityData.java
++++ b/net/minecraft/network/syncher/SynchedEntityData.java
+@@ -67,6 +_,13 @@
+         }
+     }
+ 
++    // CraftBukkit start - add method from above
++    public <T> void markDirty(EntityDataAccessor<T> accessor) {
++        this.getItem(accessor).setDirty(true);
++        this.isDirty = true;
++    }
++    // CraftBukkit end
++
+     public boolean isDirty() {
+         return this.isDirty;
+     }

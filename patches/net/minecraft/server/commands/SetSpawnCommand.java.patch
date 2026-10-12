@@ -1,0 +1,11 @@
+--- a/net/minecraft/server/commands/SetSpawnCommand.java
++++ b/net/minecraft/server/commands/SetSpawnCommand.java
+@@ -102,7 +_,7 @@
+         ServerPlayer.RespawnConfig respawnConfig = new ServerPlayer.RespawnConfig(respawnData, true);
+ 
+         for (ServerPlayer target : targets) {
+-            target.setRespawnPosition(respawnConfig, false);
++            target.setRespawnPosition(respawnConfig, false, org.bukkit.event.player.PlayerSpawnChangeEvent.Cause.COMMAND); // CraftBukkit
+             tracker.track(target);
+         }
+ 

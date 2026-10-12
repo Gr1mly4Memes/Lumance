@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lumance - this is Paper's log4j2.xml with three deliberate changes.
+
+  1. shutdownTimeout on the Configuration (Paper has no such attribute). It is passed down
+     AbstractConfiguration.stop() -> LoggerConfig -> AppenderControl -> AsyncAppender, and is what
+     lets a queued backlog finish while the terminal is still open. Harmless if log4j ignores it.
+
+  2. %stripAnsi{%msg} replaced by %msg on the File appender. That converter ships in no jar on any
+     classpath - Paper compiles its own copy in a log4jPlugins source set. It only exists to strip
+     escape codes that plugins embed in log messages, and this pattern adds none of its own.
+
+  3. TerminalConsole is attached to Root *directly* instead of through Async, which is the only
+     change that is load-bearing for a clean shutdown.
+-->
+<Configuration status="WARN" shutdownHook="disable" shutdownTimeout="2000">
+    <Appenders>
+        <Queue name="ServerGuiConsole">
+            <PatternLayout pattern="[%d{HH:mm:ss} %level]: %msg{nolookups}%n" />
+        </Queue>
+        <TerminalConsole name="TerminalConsole">
+            <PatternLayout>
+                <LoggerNamePatternSelector defaultPattern="%highlightError{[%d{HH:mm:ss} %level]: [%logger] %msg%n%xEx{full}}">
+                    <!-- Log root, Minecraft, Mojang and Bukkit loggers without prefix -->
+                    <!-- Disable prefix for various plugins that bypass the plugin logger -->
+                    <PatternMatch key=",net.minecraft.,Minecraft,com.mojang.,com.sk89q.,ru.tehkode.,Minecraft.AWE"
+                                  pattern="%highlightError{[%d{HH:mm:ss} %level]: %msg%n%xEx{full}}" />
+                </LoggerNamePatternSelector>
+            </PatternLayout>
+        </TerminalConsole>
+        <RollingRandomAccessFile name="File" fileName="logs/latest.log" filePattern="logs/%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout>
+                <LoggerNamePatternSelector defaultPattern="[%d{HH:mm:ss}] [%t/%level]: [%logger] %msg%n%xEx{full}">
+                    <!-- Log root, Minecraft, Mojang and Bukkit loggers without prefix -->
+                    <!-- Disable prefix for various plugins that bypass the plugin logger -->
+                    <PatternMatch key=",net.minecraft.,Minecraft,com.mojang.,com.sk89q.,ru.tehkode.,Minecraft.AWE"
+                                  pattern="[%d{HH:mm:ss}] [%t/%level]: %msg%n%xEx{full}" />
+                </LoggerNamePatternSelector>
+            </PatternLayout>
+            <Policies>
+                <TimeBasedTriggeringPolicy />
+                <OnStartupTriggeringPolicy />
+            </Policies>
+            <DefaultRolloverStrategy max="1000"/>
+        </RollingRandomAccessFile>
+        <!--
+          Lumance start - no TerminalConsole here on purpose; see the note at the top of the file.
+          File and ServerGuiConsole stay asynchronous, which is where throughput actually matters.
+        -->
+        <Async name="Async" shutdownTimeout="2000">
+            <AppenderRef ref="File"/>
+            <AppenderRef ref="ServerGuiConsole" level="info"/>
+        </Async>
+        <!-- Lumance end -->
+    </Appenders>
+    <Loggers>
+        <Root level="info">
+            <filters>
+                <MarkerFilter marker="NETWORK_PACKETS" onMatch="DENY" onMismatch="NEUTRAL" />
+            </filters>
+            <!-- Lumance start - synchronous, so LogManager.shutdown() has already stopped the
+                 appender on the calling thread by the time MinecraftServer closes the terminal. -->
+            <AppenderRef ref="TerminalConsole" level="info"/>
+            <!-- Lumance end -->
+            <AppenderRef ref="Async"/>
+        </Root>
+    </Loggers>
+</Configuration>

@@ -1,0 +1,11 @@
+--- a/net/minecraft/core/component/Removed.java
++++ b/net/minecraft/core/component/Removed.java
+@@ -4,7 +_,7 @@
+ import com.mojang.serialization.MapCodec;
+ import org.jspecify.annotations.Nullable;
+ 
+-final class Removed {
++public final class Removed { // CraftBukkit - public access
+     public static final Removed INSTANCE = new Removed();
+     public static final Codec<Removed> CODEC = MapCodec.unitCodec(INSTANCE);
+ 

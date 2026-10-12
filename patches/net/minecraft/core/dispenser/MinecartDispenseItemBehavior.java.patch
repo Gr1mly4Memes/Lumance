@@ -1,0 +1,58 @@
+--- a/net/minecraft/core/dispenser/MinecartDispenseItemBehavior.java
++++ b/net/minecraft/core/dispenser/MinecartDispenseItemBehavior.java
+@@ -14,6 +_,12 @@
+ import net.minecraft.world.level.block.state.properties.RailShape;
+ import net.minecraft.world.phys.Vec3;
+ 
++// CraftBukkit start
++import org.bukkit.craftbukkit.block.CraftBlock;
++import org.bukkit.craftbukkit.inventory.CraftItemStack;
++import org.bukkit.event.block.BlockDispenseEvent;
++// CraftBukkit end
++
+ public class MinecartDispenseItemBehavior extends DefaultDispenseItemBehavior {
+     private final DefaultDispenseItemBehavior defaultDispenseItemBehavior = new DefaultDispenseItemBehavior();
+     private final EntityType<? extends AbstractMinecart> entityType;
+@@ -57,12 +_,39 @@
+         }
+ 
+         Vec3 spawnPos = new Vec3(spawnX, spawnY + yOffset, spawnZ);
++        // CraftBukkit start
++        ItemStack itemstack1 = dispensed.split(1);
++        org.bukkit.block.Block block2 = CraftBlock.at(level, source.pos());
++        CraftItemStack craftItem = CraftItemStack.asCraftMirror(itemstack1);
++
++        BlockDispenseEvent event = new BlockDispenseEvent(block2, craftItem.clone(), new org.bukkit.util.Vector(spawnPos.x, spawnPos.y, spawnPos.z));
++        if (!DispenserBlock.eventFired) {
++            level.getCraftServer().getPluginManager().callEvent(event);
++        }
++
++        if (event.isCancelled()) {
++            dispensed.grow(1);
++            return dispensed;
++        }
++
++        if (!event.getItem().equals(craftItem)) {
++            dispensed.grow(1);
++            // Chain to handler for new item
++            ItemStack eventStack = CraftItemStack.asNMSCopy(event.getItem());
++            DispenseItemBehavior dispenseitembehavior = DispenserBlock.DISPENSER_REGISTRY.get(eventStack.getItem());
++            if (dispenseitembehavior != DispenseItemBehavior.NOOP && dispenseitembehavior != this) {
++                dispenseitembehavior.dispense(source, eventStack);
++                return dispensed;
++            }
++        }
+         AbstractMinecart minecart = AbstractMinecart.createMinecart(
+-            level, spawnPos.x, spawnPos.y, spawnPos.z, this.entityType, EntitySpawnReason.DISPENSER, dispensed, null
++            level, event.getVelocity().getX(), event.getVelocity().getY(), event.getVelocity().getZ(), this.entityType, EntitySpawnReason.DISPENSER, itemstack1, null
+         );
++
+         if (minecart != null) {
+-            level.addFreshEntity(minecart);
+-            dispensed.shrink(1);
++            if (!level.addFreshEntity(minecart)) dispensed.grow(1);
++            // itemstack.shrink(1); // CraftBukkit - handled during event processing
++            // CraftBukkit end
+         }
+ 
+         return dispensed;

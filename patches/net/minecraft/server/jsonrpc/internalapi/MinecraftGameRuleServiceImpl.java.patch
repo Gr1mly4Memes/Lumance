@@ -1,0 +1,11 @@
+--- a/net/minecraft/server/jsonrpc/internalapi/MinecraftGameRuleServiceImpl.java
++++ b/net/minecraft/server/jsonrpc/internalapi/MinecraftGameRuleServiceImpl.java
+@@ -31,7 +_,7 @@
+         GameRules gameRules = server.getGameRules();
+         T oldValue = gameRules.get(gameRule);
+         T newValue = update.value();
+-        gameRules.set(gameRule, newValue, server);
++        gameRules.set(gameRule, newValue, server.getLevel(net.minecraft.world.level.Level.OVERWORLD)); // CraftBukkit - per-world
+         this.jsonrpcLogger
+             .log(clientInfo, "Game rule '{}' updated from '{}' to '{}'", gameRule.id(), gameRule.serialize(oldValue), gameRule.serialize(newValue));
+         return update;

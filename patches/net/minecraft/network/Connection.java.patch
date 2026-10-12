@@ -1,0 +1,70 @@
+--- a/net/minecraft/network/Connection.java
++++ b/net/minecraft/network/Connection.java
+@@ -64,9 +_,14 @@
+     private static final ProtocolInfo<ServerHandshakePacketListener> INITIAL_PROTOCOL = HandshakeProtocols.SERVERBOUND;
+     private final PacketFlow receiving;
+     private volatile boolean sendLoginDisconnect = true;
++    // Spigot Start
++    public java.util.UUID spoofedUUID;
++    public com.mojang.authlib.properties.Property[] spoofedProfile;
++    public boolean preparing = true;
++    // Spigot End
+     private final Queue<Consumer<Connection>> pendingActions = Queues.newConcurrentLinkedQueue();
+-    private Channel channel;
+-    private SocketAddress address;
++    public Channel channel; // Spigot - public access
++    public SocketAddress address; // Spigot - public access
+     private volatile @Nullable PacketListener disconnectListener;
+     private volatile @Nullable PacketListener packetListener;
+     private @Nullable DisconnectionDetails disconnectionDetails;
+@@ -79,6 +_,7 @@
+     private boolean handlingFault;
+     private volatile @Nullable DisconnectionDetails delayedDisconnect;
+     private @Nullable BandwidthDebugMonitor bandwidthDebugMonitor;
++    public String hostname = ""; // CraftBukkit - add field
+ 
+     public Connection(PacketFlow receiving) {
+         this.receiving = receiving;
+@@ -89,6 +_,9 @@
+         super.channelActive(ctx);
+         this.channel = ctx.channel();
+         this.address = this.channel.remoteAddress();
++        // Spigot Start
++        this.preparing = false;
++        // Spigot End
+         if (this.delayedDisconnect != null) {
+             this.disconnect(this.delayedDisconnect);
+         }
+@@ -139,6 +_,7 @@
+                 }
+             }
+         }
++        if (net.minecraft.server.MinecraftServer.getServer().isDebugging()) cause.printStackTrace(); // Spigot
+     }
+ 
+     protected void channelRead0(ChannelHandlerContext ctx, Packet<?> packet) {
+@@ -388,12 +_,15 @@
+     }
+ 
+     public void disconnect(DisconnectionDetails details) {
++        // Spigot Start
++        this.preparing = false;
++        // Spigot End
+         if (this.channel == null) {
+             this.delayedDisconnect = details;
+         }
+ 
+         if (this.isConnected()) {
+-            this.channel.close().awaitUninterruptibly();
++            this.channel.close(); // We can't wait as this may be called from an event loop.
+             this.disconnectionDetails = details;
+         }
+     }
+@@ -574,6 +_,7 @@
+                     );
+                     disconnectListener.onDisconnect(details);
+                 }
++                this.pendingActions.clear(); // Free up packet queue.
+             }
+         }
+     }

@@ -1,0 +1,24 @@
+--- a/net/minecraft/nbt/ListTag.java
++++ b/net/minecraft/nbt/ListTag.java
+@@ -146,9 +_,11 @@
+         this(new ArrayList<>());
+     }
+ 
+-    ListTag(List<Tag> list) {
++    // CraftBukkit start - public for CraftPersistentDataTypeRegistry
++    public ListTag(List<Tag> list) {
+         this.list = list;
+     }
++    // CraftBukkit end
+ 
+     private static Tag tryUnwrap(CompoundTag tag) {
+         if (tag.size() == 1) {
+@@ -189,7 +_,7 @@
+     }
+ 
+     @VisibleForTesting
+-    byte identifyRawElementType() {
++    public byte identifyRawElementType() { // CraftBukkit - public access
+         byte homogenousType = 0;
+ 
+         for (Tag element : this.list) {

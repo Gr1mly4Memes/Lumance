@@ -1,0 +1,16 @@
+--- a/net/minecraft/server/Bootstrap.java
++++ b/net/minecraft/server/Bootstrap.java
+@@ -33,6 +_,13 @@
+ import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
+ import org.slf4j.Logger;
+ 
++// CraftBukkit start
++import java.util.Map;
++import net.minecraft.util.datafix.fixes.BlockStateData;
++import net.minecraft.util.datafix.fixes.ItemIdFix;
++import net.minecraft.util.datafix.fixes.ItemSpawnEggFix;
++// CraftBukkit end
++
+ @SuppressForbidden(reason = "System.out setup")
+ public class Bootstrap {
+     public static final PrintStream STDOUT = System.out;

@@ -1,0 +1,447 @@
+--- a/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/net/minecraft/server/dedicated/DedicatedServer.java
+@@ -72,24 +_,43 @@
+ import org.jspecify.annotations.Nullable;
+ import org.slf4j.Logger;
+ 
++// CraftBukkit start
++import java.util.LinkedHashMap;
++import net.minecraft.server.WorldLoader;
++import org.apache.logging.log4j.Level;
++import org.apache.logging.log4j.LogManager;
++import org.bukkit.command.CommandSender;
++import org.bukkit.craftbukkit.util.TerminalConsoleWriterThread;
++import org.bukkit.event.server.ServerCommandEvent;
++import org.bukkit.event.server.RemoteServerCommandEvent;
++import org.jline.reader.EndOfFileException;
++import org.jline.reader.LineReader;
++import org.jline.reader.LineReaderBuilder;
++import org.jline.reader.UserInterruptException;
++// CraftBukkit end
++
+ public class DedicatedServer extends MinecraftServer implements ServerInterface {
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private static final int CONVERSION_RETRY_DELAY_MS = 5000;
+     private static final int CONVERSION_RETRIES = 2;
+     private final List<ConsoleInput> consoleInput = Collections.synchronizedList(Lists.newArrayList());
+     private @Nullable QueryThreadGs4 queryThreadGs4;
+-    private final RconConsoleSource rconConsoleSource;
++    // private final RconConsoleSource rconConsoleSource; // CraftBukkit - remove field
+     private @Nullable RconThread rconThread;
+-    private final DedicatedServerSettings settings;
++    public DedicatedServerSettings settings; // CraftBukkit - public access
+     private @Nullable MinecraftServerGui gui;
+     private final @Nullable ServerTextFilter serverTextFilter;
+     private @Nullable RemoteSampleLogger tickTimeLogger;
+     private boolean isTickTimeLoggingEnabled;
+-    private final ServerLinks serverLinks;
++    public ServerLinks serverLinks; // CraftBukkit - public access
+     private final Map<String, String> codeOfConductTexts;
+     private final @Nullable ManagementServer jsonRpcServer;
++    protected Thread consoleThread; // CraftBukkit
+ 
++    // CraftBukkit start - Signature changed
+     public DedicatedServer(
++        joptsimple.OptionSet options,
++        WorldLoader.DataLoadContext worldLoader,
+         Thread serverThread,
+         LevelStorageSource.LevelStorageAccess levelStorageSource,
+         PackRepository packRepository,
+@@ -114,8 +_,10 @@
+             true,
+             notificationManager
+         );
++        // CraftBukkit end
++        this.init(options, worldLoader); // Lumance - was two leading constructor arguments
+         this.settings = settings;
+-        this.rconConsoleSource = new RconConsoleSource(this);
++        // this.rconConsoleSource = new RconConsoleSource(this); // CraftBukkit - remove field
+         this.serverTextFilter = ServerTextFilter.createFromConfig(settings.getProperties());
+         this.jsonRpcServer = jsonRpcServer;
+         this.serverLinks = createServerLinks(settings);
+@@ -126,6 +_,47 @@
+         }
+     }
+ 
++    // Lumance start - vanilla's no-arg level load signature. CraftBukkit's loadLevel takes the level
++    // id; this alias lets Fabric's gametest mixin find the anchor call site in initServer().
++    protected void loadLevel() {
++        this.loadLevel(this.storageSource.getLevelId());
++    }
++    // Lumance end
++
++    // Lumance start - Thread-first overload so Fabric's EntrypointPatch locates the game
++    // constructor (it searches the boot lambda for `<init>` starting with Ljava/lang/Thread;).
++    // Delegates to the CraftBukkit-shaped constructor above; used by Main's spin lambda.
++    public DedicatedServer(
++        Thread serverThread,
++        joptsimple.OptionSet options,
++        WorldLoader.DataLoadContext worldLoader,
++        LevelStorageSource.LevelStorageAccess levelStorageSource,
++        PackRepository packRepository,
++        WorldStem worldStem,
++        Optional<GameRules> gameRules,
++        DedicatedServerSettings settings,
++        DataFixer fixerUpper,
++        Services services,
++        @Nullable ManagementServer jsonRpcServer,
++        NotificationManager notificationManager
++    ) {
++        this(
++            options,
++            worldLoader,
++            serverThread,
++            levelStorageSource,
++            packRepository,
++            worldStem,
++            gameRules,
++            settings,
++            fixerUpper,
++            services,
++            jsonRpcServer,
++            notificationManager
++        );
++    }
++    // Lumance end
++
+     private static Map<String, String> readCodeOfConducts() {
+         Path path = Path.of("codeofconduct");
+         if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+@@ -156,7 +_,7 @@
+                 }
+             }
+ 
+-            return builder.build();
++            return new LinkedHashMap<>(builder.build()); // CraftBukkit - mutable
+         } catch (IOException e) {
+             throw new IllegalArgumentException("Failed to read Code of Conduct folder", e);
+         }
+@@ -164,21 +_,84 @@
+ 
+     @Override
+     protected boolean initServer() throws IOException {
++        // CraftBukkit start
++        LineReader reader = LineReaderBuilder.builder()
++                .terminal(terminal)
++                .option(LineReader.Option.DISABLE_EVENT_EXPANSION, true)
++                .completer(new org.bukkit.craftbukkit.command.ConsoleCommandCompleter())
++                .build();
++        // CraftBukkit end
+         Thread consoleThread = new Thread("Server console handler") {
+             @Override
+             public void run() {
+-                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
++                // CraftBukkit start
++                if (!org.bukkit.craftbukkit.Main.useConsole) {
++                    return;
++                }
++
++                // MC-33041, SPIGOT-5538: if System.in is not valid due to javaw, then return
++                try {
++                    System.in.available();
++                } catch (IOException ex) {
++                    return;
++                }
++                // CraftBukkit end
+ 
+                 String line;
++
+                 try {
+-                    while (!DedicatedServer.this.isStopped() && DedicatedServer.this.isRunning() && (line = reader.readLine()) != null) {
+-                        DedicatedServer.this.handleConsoleInput(line, DedicatedServer.this.createCommandSourceStack());
++                    // CraftBukkit start - JLine disabling compatibility
++                    while (!DedicatedServer.this.isStopped() && DedicatedServer.this.isRunning()) {
++                        try {
++                            if (org.bukkit.craftbukkit.Main.useJline) {
++                                line = reader.readLine(">", null);
++                            } else {
++                                line = reader.readLine();
++                            }
++
++                            if (line.trim().length() > 0) { // Trim to filter lines which are just spaces
++                                DedicatedServer.this.handleConsoleInput(line, DedicatedServer.this.createCommandSourceStack());
++                            }
++                        } catch (EndOfFileException | UserInterruptException eof) {
++                            // SPIGOT-5220: Throttle if EOF (ctrl^d) or stdin is /dev/null
++                            try {
++                                Thread.sleep(50L);
++                            } catch (InterruptedException ex) {
++                                Thread.currentThread().interrupt();
++                            }
++                        }
+                     }
+-                } catch (IOException e) {
++                } catch (Throwable e) {
++                    // CraftBukkit end
+                     DedicatedServer.LOGGER.error("Exception handling console input", e);
+                 }
+             }
+         };
++
++        // CraftBukkit start - TODO: handle command-line logging arguments
++        java.util.logging.Logger global = java.util.logging.Logger.getLogger("");
++        global.setUseParentHandlers(false);
++        for (java.util.logging.Handler handler : global.getHandlers()) {
++            global.removeHandler(handler);
++        }
++        global.addHandler(new org.bukkit.craftbukkit.util.ForwardLogHandler());
++
++        final org.apache.logging.log4j.core.Logger logger = ((org.apache.logging.log4j.core.Logger) LogManager.getRootLogger());
++        for (org.apache.logging.log4j.core.Appender appender : logger.getAppenders().values()) {
++            if (appender instanceof org.apache.logging.log4j.core.appender.ConsoleAppender) {
++                logger.removeAppender(appender);
++            }
++        }
++
++        TerminalConsoleWriterThread writerThread = new TerminalConsoleWriterThread(System.out, reader);
++        writerThread.start();
++
++        System.setOut(buildLoggerPrintStream(logger, Level.INFO));
++        System.setErr(buildLoggerPrintStream(logger, Level.WARN));
++
++        this.consoleThread = consoleThread;
++        // CraftBukkit end
++
+         consoleThread.setDaemon(true);
+         consoleThread.setUncaughtExceptionHandler(new DefaultUncaughtExceptionHandler(LOGGER));
+         consoleThread.start();
+@@ -196,8 +_,15 @@
+             this.setPreventProxyConnections(properties.preventProxyConnections);
+             this.setLocalIp(properties.serverIp);
+         }
+-
+-        this.worldData.setGameType(properties.gameMode.get());
++        // Spigot start
++        this.setPlayerList(new DedicatedPlayerList(this, this.registries(), this.playerDataStorage));
++        org.spigotmc.SpigotConfig.init((java.io.File) options.valueOf("spigot-settings"));
++        org.spigotmc.SpigotConfig.registerCommands();
++        // Spigot end
++
++        gr1mly4memes.lumance.LumanceConfig.init((java.io.File) options.valueOf("lumance-settings")); // Lumance - Server Config
++
++        // this.worldData.setGameType(properties.gameMode.get()); // CraftBukkit - moved to world loading
+         LOGGER.info("Default game type: {}", properties.gameMode.get());
+         InetAddress localAddress = null;
+         if (!this.getLocalIp().isEmpty()) {
+@@ -223,12 +_,23 @@
+         if (!this.usesAuthentication()) {
+             LOGGER.warn("**** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!");
+             LOGGER.warn("The server will make no attempt to authenticate usernames. Beware.");
+-            LOGGER.warn(
+-                "While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+-            );
++            // Spigot start
++            if (org.spigotmc.SpigotConfig.bungee) {
++                LOGGER.warn("Whilst this makes it possible to use BungeeCord, unless access to your server is properly restricted, it also opens up the ability for hackers to connect with any username they choose.");
++                LOGGER.warn("Please see http://www.spigotmc.org/wiki/firewall-guide/ for further information.");
++            } else {
++                LOGGER.warn("While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.");
++            }
++            // Spigot end
+             LOGGER.warn("To change this, set \"online-mode\" to \"true\" in the server.properties file.");
+         }
+ 
++        // CraftBukkit start
++        // this.setPlayerList(new DedicatedPlayerList(this, this.registries(), this.playerDataStorage)); // Spigot - moved up
++        server.loadPlugins();
++        server.enablePlugins(org.bukkit.plugin.PluginLoadOrder.STARTUP);
++        // CraftBukkit end
++
+         if (this.convertOldUsers()) {
+             this.services.nameToIdCache().save();
+         }
+@@ -237,17 +_,28 @@
+             return false;
+         }
+ 
+-        this.setPlayerList(new DedicatedPlayerList(this, this.registries(), this.playerDataStorage));
++        // CraftBukkit start - moved up
++        // Spigot creates the player list early (see the "Spigot start" block above) so Bukkit's
++        // SpigotConfig is ready before anything else. Constructing it again here would build a
++        // second CraftServer and Bukkit.setServer would throw "Cannot redefine singleton Server".
++        // this.setPlayerList(new DedicatedPlayerList(this, this.registries(), this.playerDataStorage));
++        // CraftBukkit end
+         this.tickTimeLogger = new RemoteSampleLogger(TpsDebugDimensions.values().length, this.debugSubscribers(), RemoteDebugSampleType.TICK_TIME);
+         long levelNanoTime = Util.getNanos();
+         this.services.nameToIdCache().resolveOfflineUsers(!this.usesAuthentication());
+         LOGGER.info("Preparing level \"{}\"", this.getLevelIdName());
+-        this.loadLevel();
++        // Lumance start - never taken. Vanilla's no-arg loadLevel() call site, kept so Fabric's
++        // gametest mixin resolves its redirect target. The live call below passes the level id.
++        if (System.currentTimeMillis() == Long.MIN_VALUE) {
++            this.loadLevel();
++        }
++        // Lumance end
++        this.loadLevel(storageSource.getLevelId()); // CraftBukkit
+         long elapsed = Util.getNanos() - levelNanoTime;
+         String time = String.format(Locale.ROOT, "%.3fs", elapsed / 1.0E9);
+         LOGGER.info("Done ({})! For help, type \"help\"", time);
+         if (properties.announcePlayerAchievements != null) {
+-            this.getGameRules().set(GameRules.SHOW_ADVANCEMENT_MESSAGES, properties.announcePlayerAchievements, this);
++            this.overworld().getGameRules().set(GameRules.SHOW_ADVANCEMENT_MESSAGES, properties.announcePlayerAchievements, this.overworld()); // CraftBukkit - per-world
+         }
+ 
+         if (properties.enableQuery) {
+@@ -260,7 +_,7 @@
+             this.rconThread = RconThread.create(this);
+         }
+ 
+-        if (this.getMaxTickLength() > 0L) {
++        if (false && this.getMaxTickLength() > 0L) { // Spigot - disable
+             Thread watchdog = new Thread(new ServerWatchdog(this), "Server Watchdog");
+             watchdog.setUncaughtExceptionHandler(new DefaultUncaughtExceptionHandlerWithName(LOGGER));
+             watchdog.setDaemon(true);
+@@ -420,6 +_,12 @@
+     }
+ 
+     @Override
++    public void halt(boolean wait) {
++        super.halt(wait);
++        System.exit(0); // CraftBukkit
++    }
++
++    @Override
+     protected void tickConnection() {
+         super.tickConnection();
+         this.handleConsoleInputs();
+@@ -430,10 +_,21 @@
+     }
+ 
+     public void handleConsoleInputs() {
++        org.bukkit.craftbukkit.SpigotTimings.serverCommandTimer.startTiming(); // Spigot
+         while (!this.consoleInput.isEmpty()) {
+             ConsoleInput input = this.consoleInput.remove(0);
+-            this.getCommands().performPrefixedCommand(input.source, input.msg);
++
++            // CraftBukkit start - ServerCommand for preprocessing
++            ServerCommandEvent event = new ServerCommandEvent(console, input.msg);
++            server.getPluginManager().callEvent(event);
++            if (event.isCancelled()) continue;
++            input = new ConsoleInput(event.getCommand(), input.source);
++
++            // this.getCommands().performPrefixedCommand(servercommand.source, servercommand.msg); // Called in dispatchServerCommand
++            server.dispatchServerCommand(event.getSender(), input);
++            // CraftBukkit end
+         }
++        org.bukkit.craftbukkit.SpigotTimings.serverCommandTimer.stopTiming(); // Spigot
+     }
+ 
+     @Override
+@@ -707,14 +_,52 @@
+ 
+     @Override
+     public String getPluginNames() {
+-        return "";
++        // CraftBukkit start - Whole method
++        StringBuilder result = new StringBuilder();
++        org.bukkit.plugin.Plugin[] plugins = server.getPluginManager().getPlugins();
++
++        result.append(server.getName());
++        result.append(" on Bukkit ");
++        result.append(server.getBukkitVersion());
++
++        if (plugins.length > 0 && server.getQueryPlugins()) {
++            result.append(": ");
++
++            for (int i = 0; i < plugins.length; i++) {
++                if (i > 0) {
++                    result.append("; ");
++                }
++
++                result.append(plugins[i].getDescription().getName());
++                result.append(" ");
++                result.append(plugins[i].getDescription().getVersion().replaceAll(";", ","));
++            }
++        }
++
++        return result.toString();
++        // CraftBukkit end
+     }
+ 
+     @Override
+     public String runCommand(String command) {
+-        this.rconConsoleSource.prepareForCommand();
+-        this.executeBlocking(() -> this.getCommands().performPrefixedCommand(this.rconConsoleSource.createCommandSourceStack(), command));
+-        return this.rconConsoleSource.getCommandResponse();
++        // CraftBukkit start - fire RemoteServerCommandEvent
++        throw new UnsupportedOperationException("Not supported - remote source required.");
++    }
++
++    public String runCommand(RconConsoleSource rconConsoleSource, String command) {
++        rconConsoleSource.prepareForCommand();
++        this.executeBlocking(() -> {
++            CommandSourceStack wrapper = rconConsoleSource.createCommandSourceStack();
++            RemoteServerCommandEvent event = new RemoteServerCommandEvent(rconConsoleSource.getBukkitSender(wrapper), command);
++            server.getPluginManager().callEvent(event);
++            if (event.isCancelled()) {
++                return;
++            }
++            ConsoleInput serverCommand = new ConsoleInput(event.getCommand(), wrapper);
++            server.dispatchServerCommand(event.getSender(), serverCommand);
++        });
++        return rconConsoleSource.getCommandResponse();
++        // CraftBukkit end
+     }
+ 
+     @Override
+@@ -722,6 +_,17 @@
+         this.notificationManager().serverShuttingDown();
+         super.stopServer();
+         Util.shutdownExecutors();
++        // CraftBukkit start
++        Thread consoleThread = this.consoleThread;
++        if (consoleThread != null) {
++            consoleThread.interrupt();
++            try {
++                consoleThread.join(50L);
++            } catch (InterruptedException ex) {
++                Thread.currentThread().interrupt();
++            }
++        }
++        // CraftBukkit end
+     }
+ 
+     @Override
+@@ -851,4 +_,42 @@
+     public Map<String, String> getCodeOfConducts() {
+         return this.codeOfConductTexts;
+     }
++
++    // CraftBukkit start
++    public boolean isDebugging() {
++        return this.getProperties().debug;
++    }
++
++    @Override
++    public CommandSender getBukkitSender(CommandSourceStack wrapper) {
++        return console;
++    }
++    // CraftBukkit end
++
++    // CraftBukkit start - log4j 2.26 dropped IoBuilder; replicate its buildPrintStream()
++    private static java.io.PrintStream buildLoggerPrintStream(org.apache.logging.log4j.core.Logger logger, Level level) {
++        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(256);
++        java.io.OutputStream logStream = new java.io.OutputStream() {
++            @Override
++            public void write(int b) {
++                buffer.write(b);
++            }
++
++            @Override
++            public void write(byte[] b, int off, int len) {
++                buffer.write(b, off, len);
++            }
++
++            @Override
++            public void flush() {
++                String line = buffer.toString(java.nio.charset.StandardCharsets.UTF_8);
++                buffer.reset();
++                if (!line.isEmpty()) {
++                    logger.log(level, line.stripTrailing());
++                }
++            }
++        };
++        return new java.io.PrintStream(logStream, true, java.nio.charset.StandardCharsets.UTF_8);
++    }
++    // CraftBukkit end
+ }

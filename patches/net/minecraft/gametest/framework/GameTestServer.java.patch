@@ -1,0 +1,19 @@
+--- a/net/minecraft/gametest/framework/GameTestServer.java
++++ b/net/minecraft/gametest/framework/GameTestServer.java
+@@ -167,6 +_,7 @@
+             false,
+             new NotificationManager()
+         );
++        this.init(null, new net.minecraft.server.WorldLoader.DataLoadContext(worldStem.resourceManager(), worldStem.worldDataAndGenSettings().data().getDataConfiguration(), worldStem.registries().compositeAccess(), worldStem.registries().compositeAccess())); // CraftBukkit - Lumance: moved out of super(...)
+         this.testSelection = testSelection;
+         this.repeatCount = repeatCount;
+         this.verify = verify;
+@@ -176,7 +_,7 @@
+     protected boolean initServer() {
+         this.setPlayerList(new PlayerList(this, this.registries(), this.playerDataStorage, new EmptyNotificationService()) {});
+         Gizmos.withCollector(GizmoCollector.NOOP);
+-        this.loadLevel();
++        this.loadLevel(this.getWorldData().getLevelName()); // CraftBukkit - per-world
+         this.testBatches = this.evaluateTestsToRun(this);
+         LOGGER.info("Started game test server");
+         return true;

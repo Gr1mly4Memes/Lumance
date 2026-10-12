@@ -1,0 +1,47 @@
+--- a/net/minecraft/server/level/DistanceManager.java
++++ b/net/minecraft/server/level/DistanceManager.java
+@@ -44,7 +_,7 @@
+     private final ThrottlingChunkTaskDispatcher ticketDispatcher;
+     private final LongSet ticketsToRelease = new LongOpenHashSet();
+     private final Executor mainThreadExecutor;
+-    private int simulationDistance = 10;
++    public int simulationDistance = 10; // CraftBukkit - public access
+ 
+     protected DistanceManager(TicketStorage ticketStorage, Executor executor, Executor mainThreadExecutor) {
+         this.ticketStorage = ticketStorage;
+@@ -62,6 +_,7 @@
+     protected abstract @Nullable ChunkHolder updateChunkScheduling(final long node, final int level, final @Nullable ChunkHolder chunk, final int oldLevel);
+ 
+     public boolean runAllUpdates(ChunkMap scheduler) {
++        org.spigotmc.AsyncCatcher.catchOp("chunk updates"); // Spigot
+         this.naturalSpawnChunkCounter.runAllUpdates();
+         this.simulationChunkTracker.runAllUpdates();
+         this.playerTicketManager.runAllUpdates();
+@@ -72,6 +_,11 @@
+         }
+ 
+         if (!this.chunksToUpdateFutures.isEmpty()) {
++            // CraftBukkit start - SPIGOT-7780: Call chunk unload events before updateHighestAllowedStatus
++            for (ChunkHolder chunksToUpdateFuture : this.chunksToUpdateFutures) {
++                chunksToUpdateFuture.callEventIfUnloading(scheduler);
++            }
++            // CraftBukkit end
+             for (ChunkHolder chunksToUpdateFuture : this.chunksToUpdateFutures) {
+                 chunksToUpdateFuture.updateHighestAllowedStatus(scheduler);
+             }
+@@ -119,6 +_,7 @@
+         ChunkPos chunk = pos.chunk();
+         long chunkPos = chunk.pack();
+         ObjectSet<ServerPlayer> chunkPlayers = this.playersPerChunk.get(chunkPos);
++        if (chunkPlayers == null) return; // CraftBukkit - SPIGOT-6208
+         chunkPlayers.remove(player);
+         if (chunkPlayers.isEmpty()) {
+             this.playersPerChunk.remove(chunkPos);
+@@ -210,6 +_,7 @@
+ 
+         @Override
+         protected void setLevel(long node, int level) {
++            org.spigotmc.AsyncCatcher.catchOp("chunk level update"); // Spigot
+             byte oldLevel;
+             if (level > this.maxDistance) {
+                 oldLevel = this.chunks.remove(node);

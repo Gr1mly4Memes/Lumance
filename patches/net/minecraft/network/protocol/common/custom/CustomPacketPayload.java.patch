@@ -1,0 +1,30 @@
+--- a/net/minecraft/network/protocol/common/custom/CustomPacketPayload.java
++++ b/net/minecraft/network/protocol/common/custom/CustomPacketPayload.java
+@@ -34,9 +_,26 @@
+ 
+             private <T extends CustomPacketPayload> void writeCap(B output, CustomPacketPayload.Type<T> type, CustomPacketPayload payload) {
+                 output.writeIdentifier(type.id());
+-                StreamCodec<B, T> codec = (StreamCodec<B, T>)this.findCodec(type.id);
++                // Lumance start - pick the encoder by what the payload IS, not by its id alone
++                // findCodec() resolves purely by identifier, which breaks the moment two things claim
++                // the same channel. Fabric registers its RegistrationPayload on the VANILLA channel
++                // minecraft:register, and CraftBukkit sends plugin messages as a DiscardedPayload
++                // carrying raw bytes on that same channel (CraftPlayer#sendCustomPayload). Encoding
++                // then hands the DiscardedPayload to Fabric's RegistrationPayload encoder, whose
++                // `(T) payload` cast throws, and the client is disconnected mid-join with:
++                //   ClassCastException: DiscardedPayload cannot be cast to RegistrationPayload
++                //
++                // A DiscardedPayload always carries its own codec and means "opaque bytes for this
++                // channel", so it must be written with the fallback codec rather than a typed codec
++                // that merely happens to share the identifier. Every other payload keeps vanilla's
++                // id-based lookup, so mods that legitimately own a channel are unaffected.
++                @SuppressWarnings("unchecked")
++                StreamCodec<B, T> codec = (StreamCodec<B, T>) ((payload instanceof DiscardedPayload)
++                    ? fallback.create(type.id())
++                    : this.findCodec(type.id()));
+                 codec.encode(output, (T)payload);
+             }
++            // Lumance end
+ 
+             public void encode(B output, CustomPacketPayload value) {
+                 this.writeCap(output, value.type(), value);

@@ -1,0 +1,11 @@
+--- a/net/minecraft/ChatFormatting.java
++++ b/net/minecraft/ChatFormatting.java
+@@ -30,7 +_,7 @@
+ 
+     public static final char PREFIX_CODE = '\u00a7';
+     private static final Pattern STRIP_FORMATTING_PATTERN = Pattern.compile("(?i)\u00a7[0-9A-FK-OR]");
+-    private final char code;
++    public final char code; // CraftBukkit - public access
+     private final String toString;
+ 
+     ChatFormatting(char code) {

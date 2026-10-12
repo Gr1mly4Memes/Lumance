@@ -1,0 +1,66 @@
+--- a/net/minecraft/core/component/DataComponentPatch.java
++++ b/net/minecraft/core/component/DataComponentPatch.java
+@@ -8,6 +_,7 @@
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectMap;
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectMaps;
+ import java.util.Set;
++import java.util.Map;
+ import java.util.Map.Entry;
+ import java.util.function.Predicate;
+ import net.minecraft.core.registries.BuiltInRegistries;
+@@ -154,6 +_,12 @@
+         return (T)(value != null ? Removed.removedToNull(value) : prototype.get(type));
+     }
+ 
++    // CraftBukkit start
++    public Set<Map.Entry<DataComponentType<?>, Object>> entrySet() {
++        return this.map.entrySet();
++    }
++    // CraftBukkit end
++
+     public int size() {
+         return this.map.size();
+     }
+@@ -236,6 +_,42 @@
+ 
+         private Builder() {
+         }
++
++        // CraftBukkit start
++        public void copy(DataComponentPatch orig) {
++            this.map.putAll(orig.map);
++        }
++
++        public void clear(DataComponentType<?> type) {
++            this.map.remove(type);
++        }
++
++        public boolean isSet(DataComponentType<?> type) {
++            return map.containsKey(type);
++        }
++
++        public boolean isEmpty() {
++            return this.map.isEmpty();
++        }
++
++        @Override
++        public boolean equals(Object object) {
++            if (this == object) {
++                return true;
++            }
++
++            if (object instanceof DataComponentPatch.Builder patch) {
++                return this.map.equals(patch.map);
++            }
++
++            return false;
++        }
++
++        @Override
++        public int hashCode() {
++            return this.map.hashCode();
++        }
++        // CraftBukkit end
+ 
+         public <T> DataComponentPatch.Builder set(DataComponentType<T> type, T value) {
+             this.map.put(type, value);

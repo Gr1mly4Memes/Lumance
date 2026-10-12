@@ -1,0 +1,111 @@
+--- a/net/minecraft/server/network/ServerConfigurationPacketListenerImpl.java
++++ b/net/minecraft/server/network/ServerConfigurationPacketListenerImpl.java
+@@ -42,6 +_,12 @@
+ import org.jspecify.annotations.Nullable;
+ import org.slf4j.Logger;
+ 
++// CraftBukkit start
++import net.minecraft.server.level.ServerPlayer;
++import org.bukkit.craftbukkit.CraftServerLinks;
++import org.bukkit.event.player.PlayerLinksSendEvent;
++// CraftBukkit end
++
+ public class ServerConfigurationPacketListenerImpl extends ServerCommonPacketListenerImpl implements ServerConfigurationPacketListener, TickablePacketListener {
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private static final Component DISCONNECT_REASON_INVALID_DATA = Component.translatable("multiplayer.disconnect.invalid_player_data");
+@@ -53,8 +_,10 @@
+     private @Nullable SynchronizeRegistriesTask synchronizeRegistriesTask;
+     private @Nullable PrepareSpawnTask prepareSpawnTask;
+ 
+-    public ServerConfigurationPacketListenerImpl(MinecraftServer server, Connection connection, CommonListenerCookie cookie) {
+-        super(server, connection, cookie);
++    // CraftBukkit start
++    public ServerConfigurationPacketListenerImpl(MinecraftServer server, Connection connection, CommonListenerCookie cookie, ServerPlayer player) {
++        super(server, connection, cookie, player);
++        // CraftBukkit end
+         this.gameProfile = cookie.gameProfile();
+         this.clientInformation = cookie.clientInformation();
+     }
+@@ -83,6 +_,22 @@
+     public void startConfiguration() {
+         this.send(new ClientboundCustomPayloadPacket(new BrandPayload(this.server.getServerModName())));
+         ServerLinks serverLinks = this.server.serverLinks();
++        // CraftBukkit start - PlayerLinksSendEvent is a synchronous Bukkit event, so it must run on
++        // the primary server thread, and startConfiguration() can be entered from a Netty IO thread:
++        // Fabric's ServerCommonPacketListenerImplMixin injects at the HEAD of handleCustomPayload,
++        // ahead of that method's own ensureRunningOnSameThread hop.
++        //
++        // Only the event is moved onto the server thread. Re-dispatching the whole method with
++        // server.execute(this::startConfiguration) must not be done: Fabric injects a cancellable
++        // handler at this method's HEAD (ServerConfigurationPacketListenerImplMixin.onClientReady)
++        // which asserts the configuration task queue is empty, because its protocol is to cancel the
++        // method, run its own registry sync, and then call startConfiguration() again once the sync
++        // is done so vanilla can proceed. An extra dispatch makes that handler run once more *after*
++        // vanilla has already queued its tasks, and every join then dies with
++        //   "All early tasks should have been completed, current: null, queued: 4".
++        serverLinks = this.fireLinksSendEventOnServerThread(serverLinks);
++        // CraftBukkit end
++
+         if (!serverLinks.isEmpty()) {
+             this.send(new ClientboundServerLinksPacket(serverLinks.untrust()));
+         }
+@@ -100,8 +_,32 @@
+         this.returnToWorld();
+     }
+ 
++    // CraftBukkit start
++    /**
++     * Fires {@link PlayerLinksSendEvent} on the primary server thread and returns the (possibly
++     * plugin-modified) links.
++     */
++    private ServerLinks fireLinksSendEventOnServerThread(ServerLinks serverLinks) {
++        if (this.server.isSameThread()) {
++            return this.fireLinksSendEvent(serverLinks);
++        }
++
++        // Blocking here is safe: the server thread drains its task queue while it waits for the next
++        // tick (BlockableEventLoop.managedBlock), so this supplier always gets to run - and the
++        // configuration phase is only reached while the server is ticking anyway.
++        return this.server.submit(() -> this.fireLinksSendEvent(serverLinks)).join();
++    }
++
++    private ServerLinks fireLinksSendEvent(ServerLinks serverLinks) {
++        CraftServerLinks wrapper = new CraftServerLinks(serverLinks);
++        PlayerLinksSendEvent event = new PlayerLinksSendEvent(this.player.getBukkitEntity(), wrapper);
++        this.player.getBukkitEntity().getServer().getPluginManager().callEvent(event);
++        return wrapper.getServerLinks();
++    }
++    // CraftBukkit end
++
+     public void returnToWorld() {
+-        this.prepareSpawnTask = new PrepareSpawnTask(this.server, new NameAndId(this.gameProfile));
++        this.prepareSpawnTask = new PrepareSpawnTask(this.server, this.player); // CraftBukkit
+         this.configurationTasks.add(this.prepareSpawnTask);
+         this.configurationTasks.add(new JoinWorldTask());
+         this.startNextTask();
+@@ -153,6 +_,7 @@
+ 
+     @Override
+     public void handleAcceptCodeOfConduct(ServerboundAcceptCodeOfConductPacket packet) {
++        PacketUtils.ensureRunningOnSameThread(packet, this, this.server.packetProcessor()); // CraftBukkit
+         this.finishCurrentTask(ServerCodeOfConductConfigurationTask.TYPE);
+     }
+ 
+@@ -169,12 +_,16 @@
+                 return;
+             }
+ 
+-            Component loginError = playerList.canPlayerLogin(this.connection.getRemoteAddress(), new NameAndId(this.gameProfile));
++            Component loginError = null; // CraftBukkit - login checks already completed
+             if (loginError != null) {
+                 this.disconnect(loginError);
+                 return;
+             }
+ 
++            // CraftBukkit start
++            ServerPlayer serverplayer = this.player;
++            serverplayer.updateOptions(this.clientInformation);
++            // CraftBukkit end
+             Objects.requireNonNull(this.prepareSpawnTask).spawnPlayer(this.connection, this.createCookie(this.clientInformation));
+         } catch (Exception e) {
+             LOGGER.error("Couldn't place player in world", e);

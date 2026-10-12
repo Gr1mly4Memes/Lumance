@@ -1,0 +1,298 @@
+--- a/net/minecraft/server/Main.java
++++ b/net/minecraft/server/Main.java
+@@ -62,12 +_,79 @@
+ import org.jspecify.annotations.Nullable;
+ import org.slf4j.Logger;
+ 
++// CraftBukkit start
++import com.google.common.base.Charsets;
++import java.io.InputStreamReader;
++import java.util.concurrent.atomic.AtomicReference;
++import net.minecraft.SharedConstants;
++import net.minecraft.server.packs.PackType;
++import net.minecraft.world.level.storage.LevelResource;
++import org.bukkit.configuration.file.YamlConfiguration;
++// CraftBukkit end
++
+ public class Main {
+     private static final Logger LOGGER = LogUtils.getLogger();
+ 
+-    @SuppressForbidden(reason = "System.out needed before bootstrap")
++    // Lumance start - Fabric Loader compatibility. Knot's EntrypointPatch plus fabric-api's
++    // MainMixins (datagen/gametest/registry-sync) assume vanilla's monolithic main(String[]) and
++    // scan this exact method for anchors: the "Safe mode active..." constant (20w22a+ detection),
++    // a live "server.properties" constant (patch insertion point for Hooks.startServer, i.e. mod
++    // init), and the call sites in the carcass below (NEW DedicatedServerSettings, Eula check,
++    // createPackRepository, LOGGER.error, startTimerHackThread). Knot injects mod init at the
++    // server.properties call, so the registry freeze below is deliberately placed *after* it -
++    // see the note there. The if blocks never execute, so Knot's datagen/gametest entry modes do
++    // not run on Lumance; the anchors exist purely so Loader can initialize mods.
+     public static void main(String[] args) {
+         SharedConstants.tryDetectVersion();
++        CrashReport.preload();
++        // Vanilla's own ordering: Bootstrap.bootStrap()/validate() run *before* the
++        // Paths.get("server.properties") call that Knot patches Hooks.startServer() into, so mod
++        // entrypoints run with the registries bootstrapped but - thanks to fabric-registry-sync's
++        // BootstrapMixin redirecting the BuiltInRegistries.bootStrap() call inside
++        // Bootstrap.bootStrap() to delayRegistryFreeze() - still writable. Mods depend on both
++        // halves of that: fabric-menu-api's Networking entrypoint touches BuiltInRegistries and
++        // would fail with "Not bootstrapped" if bootstrap had not run yet, while Lithostitched
++        // registers its own registry *type* into the root registry and would fail with "Registry is
++        // already frozen" if it had.
++        Bootstrap.bootStrap();
++        Bootstrap.validate();
++        if (System.currentTimeMillis() == Long.MIN_VALUE) {
++            LOGGER.info("Safe mode active, only vanilla datapack will be loaded");
++        }
++        Paths.get("server.properties");
++        // Lumance start - fabric-registry-sync's redirect above leaves the static registries
++        // permanently unfrozen: on a stock server the deferred freeze is completed by the vanilla
++        // main flow, but Lumance replaces that flow with the Bukkit CLI, so nothing ever freezes
++        // them and the first freeze (RegistryLayer.createRegistryAccess during world load) fails
++        // with "Unbound tags". Now that mod init is done, complete the freeze the vanilla flow
++        // would have driven. This has to happen after the Hooks.startServer() call injected above,
++        // since freezing here closes the root registry to mod registrations.
++        net.minecraft.core.registries.BuiltInRegistries.bootStrap();
++        // Lumance end
++        org.bukkit.craftbukkit.Main.main(args);
++        if (System.currentTimeMillis() == Long.MIN_VALUE) {
++            // Never taken. Vanilla call-site carcass for the fabric-api MainMixin anchors above.
++            Path settingsFile = Paths.get("server.properties");
++            DedicatedServerSettings settings = new DedicatedServerSettings((OptionSet) null);
++            Eula eula = new Eula(Paths.get("eula.txt"));
++            LevelStorageSource.LevelStorageAccess access = null;
++            PackRepository packRepository = null;
++            boolean agreed = eula.hasAgreedToEULA();
++            packRepository = ServerPacksSource.createPackRepository(access);
++            Util.startTimerHackThread();
++            try {
++                throw new IllegalStateException("Lumance");
++            } catch (Throwable t) {
++                LOGGER.error(LogUtils.FATAL_MARKER, "Failed to start the minecraft server", t);
++            }
++        }
++    }
++    // Lumance end
++
++    @SuppressForbidden(reason = "System.out needed before bootstrap")
++    public static void main(final OptionSet optionset) { // CraftBukkit - replaces main(String[] args)
++        SharedConstants.tryDetectVersion();
++        /* CraftBukkit start - Replace everything
+         OptionParser parser = new OptionParser();
+         OptionSpec<Void> nogui = parser.accepts("nogui");
+         OptionSpec<Void> initSettings = parser.accepts("initSettings", "Initializes 'server.properties' and 'eula.txt', then quits");
+@@ -92,14 +_,17 @@
+                 parser.printHelpOn(System.err);
+                 return;
+             }
+-
+-            Path pidFilePath = options.valueOf(pidFile);
++            */ // CraftBukkit end
++
++        try {
++
++            Path pidFilePath = (Path) optionset.valueOf("pidFile"); // CraftBukkit
+             if (pidFilePath != null) {
+                 writePidFile(pidFilePath);
+             }
+ 
+             CrashReport.preload();
+-            if (options.has(jfrProfilingOption)) {
++            if (optionset.has("jfrProfile")) { // CraftBukkit
+                 JvmProfiler.INSTANCE.start(Environment.SERVER);
+             }
+ 
+@@ -107,28 +_,54 @@
+             Bootstrap.validate();
+             Util.startTimerHackThread();
+             Path settingsFile = Paths.get("server.properties");
+-            DedicatedServerSettings settings = new DedicatedServerSettings(settingsFile);
++            DedicatedServerSettings settings = new DedicatedServerSettings(optionset); // CraftBukkit - CLI argument support
+             settings.forceSave();
+             RegionFileVersion.configure(settings.getProperties().regionFileComression);
+             Path eulaFile = Paths.get("eula.txt");
+             Eula eula = new Eula(eulaFile);
+-            if (options.has(initSettings)) {
++            if (optionset.has("initSettings")) { // CraftBukkit
++                // CraftBukkit start - SPIGOT-5761: Create bukkit.yml and commands.yml if not present
++                File configFile = (File) optionset.valueOf("bukkit-settings");
++                YamlConfiguration configuration = YamlConfiguration.loadConfiguration(configFile);
++                configuration.options().copyDefaults(true);
++                configuration.setDefaults(YamlConfiguration.loadConfiguration(new InputStreamReader(Main.class.getClassLoader().getResourceAsStream("configurations/bukkit.yml"), Charsets.UTF_8)));
++                configuration.save(configFile);
++
++                File commandFile = (File) optionset.valueOf("commands-settings");
++                YamlConfiguration commandsConfiguration = YamlConfiguration.loadConfiguration(commandFile);
++                commandsConfiguration.options().copyDefaults(true);
++                commandsConfiguration.setDefaults(YamlConfiguration.loadConfiguration(new InputStreamReader(Main.class.getClassLoader().getResourceAsStream("configurations/commands.yml"), Charsets.UTF_8)));
++                commandsConfiguration.save(commandFile);
++                // CraftBukkit end
+                 LOGGER.info("Initialized '{}' and '{}'", settingsFile.toAbsolutePath(), eulaFile.toAbsolutePath());
+                 return;
+             }
+ 
+-            if (!eula.hasAgreedToEULA()) {
++            // Spigot Start
++            boolean eulaAgreed = Boolean.getBoolean("com.mojang.eula.agree");
++            if (eulaAgreed) {
++                System.err.println("You have used the Spigot command line EULA agreement flag.");
++                System.err.println("By using this setting you are indicating your agreement to Mojang's EULA (https://account.mojang.com/documents/minecraft_eula).");
++                System.err.println("If you do not agree to the above EULA please stop your server and remove this flag immediately.");
++            }
++            // Spigot End
++            if (!eula.hasAgreedToEULA() && !eulaAgreed) { // Spigot
+                 LOGGER.info("You need to agree to the EULA in order to run the server. Go to eula.txt for more info.");
+                 return;
+             }
+ 
+-            File universePath = new File(options.valueOf(universe));
++            // CraftBukkit - the OptionSet comes from Bukkit's parser, which declares "universe"
++            // with .ofType(File.class) rather than vanilla's String option.
++            Object universeArg = optionset.valueOf("universe");
++            File universePath = universeArg instanceof File universeFile ? universeFile : new File(String.valueOf(universeArg));
+             Services services = Services.create(MinecraftServicesDiscoveryService.create(Proxy.NO_PROXY), universePath);
+             NotificationManager notificationManager = new NotificationManager();
+             ManagementServer jsonRpcServer = JsonRpc.create(settings, notificationManager);
+-            String levelName = Optional.ofNullable(options.valueOf(worldName)).orElse(settings.getProperties().levelName);
++            String levelName = (String) Optional.ofNullable((String) optionset.valueOf("world")).orElse(settings.getProperties().levelName); // CraftBukkit
+             LevelStorageSource levelStorageSource = LevelStorageSource.createDefault(universePath.toPath());
+-            LevelStorageSource.LevelStorageAccess access = levelStorageSource.validateAndCreateAccess(levelName);
++            // CraftBukkit start
++            LevelStorageSource.LevelStorageAccess access = levelStorageSource.validateAndCreateAccess(levelName, LevelStem.OVERWORLD);
++            // CraftBukkit end
+             Dynamic<?> levelDataTag;
+             if (access.hasWorldData()) {
+                 Dynamic<?> levelDataUnfixed;
+@@ -155,12 +_,31 @@
+                 levelDataTag = null;
+             }
+ 
+-            boolean safeModeEnabled = options.has(safeMode);
++            boolean safeModeEnabled = optionset.has("safeMode"); // CraftBukkit
+             if (safeModeEnabled) {
+                 LOGGER.warn("Safe mode active, only vanilla datapack will be loaded");
+             }
+ 
+             PackRepository packRepository = ServerPacksSource.createPackRepository(access);
++            // CraftBukkit start
++            File bukkitDataPackFolder = new File(access.getLevelPath(LevelResource.DATAPACK_DIR).toFile(), "bukkit");
++            if (!bukkitDataPackFolder.exists()) {
++                bukkitDataPackFolder.mkdirs();
++            }
++            File mcMeta = new File(bukkitDataPackFolder, "pack.mcmeta");
++            try {
++                com.google.common.io.Files.write("{\n"
++                        + "    \"pack\": {\n"
++                        + "        \"description\": \"Data pack for resources provided by Bukkit plugins\",\n"
++                        + "        \"min_format\": " + SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA) + ",\n"
++                        + "        \"max_format\": " + SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA) + "\n"
++                        + "    }\n"
++                        + "}\n", mcMeta, com.google.common.base.Charsets.UTF_8);
++            } catch (java.io.IOException ex) {
++                throw new RuntimeException("Could not initialize Bukkit datapack", ex);
++            }
++            AtomicReference<WorldLoader.DataLoadContext> worldLoader = new AtomicReference<>();
++            // CraftBukkit end
+ 
+             WorldStem worldStem;
+             try {
+@@ -169,6 +_,7 @@
+                         executor -> WorldLoader.load(
+                             worldLoadConfig,
+                             context -> {
++                                worldLoader.set(context); // CraftBukkit
+                                 Registry<LevelStem> datapackDimensions = context.datapackDimensions().lookupOrThrow(Registries.LEVEL_STEM);
+                                 if (levelDataTag != null) {
+                                     LevelDataAndDimensions worldData = LevelStorageSource.getLevelDataAndDimensions(
+@@ -179,7 +_,7 @@
+                                     );
+                                 } else {
+                                     LOGGER.info("No existing world data, creating new world");
+-                                    return createNewWorldData(settings, context, datapackDimensions, options.has(demo), options.has(bonusChest));
++                                    return createNewWorldData(settings, context, datapackDimensions, optionset.has("demo"), optionset.has("bonusChest")); // CraftBukkit
+                                 }
+                             },
+                             WorldStem::new,
+@@ -195,18 +_,24 @@
+                 return;
+             }
+ 
++            /*
+             RegistryAccess.Frozen registryHolder = worldStem.registries().compositeAccess();
+             WorldData data = worldStem.worldDataAndGenSettings().data();
+-            boolean recreateRegionFilesValue = options.has(recreateRegionFiles);
+-            if (options.has(forceUpgrade) || recreateRegionFilesValue) {
+-                forceUpgrade(access, DataFixers.getDataFixer(), options.has(eraseCache), () -> true, registryHolder, recreateRegionFilesValue);
++            boolean recreateRegionFilesValue = optionset.has("recreateRegionFiles"); // CraftBukkit
++            if (optionset.has("forceUpgrade") || recreateRegionFilesValue) { // CraftBukkit
++                forceUpgrade(access, DataFixers.getDataFixer(), optionset.has("eraseCache"), () -> true, registryHolder, recreateRegionFilesValue); // CraftBukkit
+             }
+ 
+             access.saveDataTag(data);
++            */
+             final DedicatedServer dedicatedServer = MinecraftServer.spin(
+                 thread -> {
++                    // Lumance: Thread-first overload so Fabric's EntrypointPatch locates the
++                    // game constructor (`<init>` starting with Ljava/lang/Thread;)
+                     DedicatedServer server = new DedicatedServer(
+                         thread,
++                        optionset, // CraftBukkit
++                        worldLoader.get(), // CraftBukkit
+                         access,
+                         packRepository,
+                         worldStem,
+@@ -218,17 +_,27 @@
+                         notificationManager
+                     );
+                     notificationManager.setServer(server);
++                    /* // CraftBukkit - moved to CraftBukkit
+                     server.setPort(options.valueOf(port));
+                     server.setDemo(options.has(demo));
+                     server.setId(options.valueOf(serverId));
+-                    boolean gui = !options.has(nogui) && !options.valuesOf(nonOptions).contains("nogui");
++                    */ // CraftBukkit
++                    boolean gui = !optionset.has("nogui") && !optionset.nonOptionArguments().contains("nogui"); // CraftBukkit
+                     if (gui && !GraphicsEnvironment.isHeadless()) {
+                         server.showGui();
+                     }
+ 
++                    if (optionset.has("port")) { // CraftBukkit
++                        int portValue = (Integer) optionset.valueOf("port"); // CraftBukkit
++                        if (portValue > 0) { // CraftBukkit
++                            server.setPort(portValue); // CraftBukkit
++                        } // CraftBukkit
++                    } // CraftBukkit
++
+                     return server;
+                 }
+             );
++            /* CraftBukkit start
+             Thread shutdownThread = new Thread("Server Shutdown Thread") {
+                 @Override
+                 public void run() {
+@@ -237,6 +_,7 @@
+             };
+             shutdownThread.setUncaughtExceptionHandler(new DefaultUncaughtExceptionHandler(LOGGER));
+             Runtime.getRuntime().addShutdownHook(shutdownThread);
++            */ // CraftBukkit end
+         } catch (Throwable t) {
+             LOGGER.error(LogUtils.FATAL_MARKER, "Failed to start the minecraft server", t);
+         }
+@@ -301,7 +_,7 @@
+         return new WorldLoader.InitConfig(packConfig, Commands.CommandSelection.DEDICATED, properties.functionPermissions);
+     }
+ 
+-    private static void forceUpgrade(
++    public static void forceUpgrade(
+         LevelStorageSource.LevelStorageAccess storageSource,
+         DataFixer fixerUpper,
+         boolean eraseCache,
+@@ -309,7 +_,7 @@
+         RegistryAccess registryAccess,
+         boolean recreateRegionFiles
+     ) {
+-        LOGGER.info("Forcing world upgrade!");
++        LOGGER.info("Forcing world upgrade! {}", storageSource.getLevelId()); // CraftBukkit
+ 
+         try (WorldUpgrader upgrader = new WorldUpgrader(storageSource, fixerUpper, registryAccess, eraseCache, recreateRegionFiles)) {
+             Component lastStatus = null;

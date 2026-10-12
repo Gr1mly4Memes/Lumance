@@ -1,0 +1,11 @@
+--- a/net/minecraft/server/ReloadableServerResources.java
++++ b/net/minecraft/server/ReloadableServerResources.java
+@@ -23,7 +_,7 @@
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private static final CompletableFuture<Unit> DATA_RELOAD_INITIAL_TASK = CompletableFuture.completedFuture(Unit.INSTANCE);
+     private final ReloadableServerRegistries.Holder fullRegistryHolder;
+-    private final Commands commands;
++    public Commands commands; // CraftBukkit - public access
+     private final RecipeManager recipes;
+     private final ServerAdvancementManager advancements;
+     private final ServerFunctionLibrary functionLibrary;

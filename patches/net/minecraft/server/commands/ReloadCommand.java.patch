@@ -1,0 +1,19 @@
+--- a/net/minecraft/server/commands/ReloadCommand.java
++++ b/net/minecraft/server/commands/ReloadCommand.java
+@@ -37,6 +_,16 @@
+         return selected;
+     }
+ 
++    // CraftBukkit start
++    public static void reload(MinecraftServer server) {
++        PackRepository packRepository = server.getPackRepository();
++        WorldData worldData = server.getWorldData();
++        Collection<String> currentPacks = packRepository.getSelectedIds();
++        Collection<String> newSelectedPacks = discoverNewPacks(packRepository, worldData, currentPacks);
++        server.reloadResources(newSelectedPacks);
++    }
++    // CraftBukkit end
++
+     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+         dispatcher.register(Commands.literal("reload").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(s -> {
+             CommandSourceStack source = s.getSource();

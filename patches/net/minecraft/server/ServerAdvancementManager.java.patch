@@ -1,0 +1,42 @@
+--- a/net/minecraft/server/ServerAdvancementManager.java
++++ b/net/minecraft/server/ServerAdvancementManager.java
+@@ -5,6 +_,10 @@
+ import com.mojang.logging.LogUtils;
+ import java.util.Collection;
+ import java.util.Map;
++
++// CraftBukkit start
++import java.util.HashMap;
++// CraftBukkit end
+ import net.minecraft.advancements.Advancement;
+ import net.minecraft.advancements.AdvancementHolder;
+ import net.minecraft.advancements.AdvancementTree;
+@@ -18,17 +_,26 @@
+ 
+ public class ServerAdvancementManager {
+     private static final Logger LOGGER = LogUtils.getLogger();
+-    private final Map<Identifier, AdvancementHolder> advancements;
++    public final Map<Identifier, AdvancementHolder> advancements; // CraftBukkit - public access
+     private final AdvancementTree tree;
+ 
+     public ServerAdvancementManager(HolderLookup.Provider registries) {
+         HolderLookup.RegistryLookup<Advancement> advancements = registries.lookupOrThrow(Registries.ADVANCEMENT);
+         Builder<Identifier, AdvancementHolder> builder = ImmutableMap.builder();
+         advancements.listElements().forEach(advancement -> {
++            // Spigot start
++            Identifier identifier = advancement.key().identifier();
++            if (org.spigotmc.SpigotConfig.disabledAdvancements != null
++                && (org.spigotmc.SpigotConfig.disabledAdvancements.contains("*")
++                    || org.spigotmc.SpigotConfig.disabledAdvancements.contains(identifier.toString())
++                    || org.spigotmc.SpigotConfig.disabledAdvancements.contains(identifier.getNamespace()))) {
++                return;
++            }
++            // Spigot end
+             validate(registries, (Holder.Reference<Advancement>)advancement);
+             builder.put(advancement.key().identifier(), new AdvancementHolder(advancement.key().identifier(), advancement.value()));
+         });
+-        this.advancements = builder.buildOrThrow();
++        this.advancements = new HashMap<>(builder.buildOrThrow()); // CraftBukkit - SPIGOT-7734: mutable
+         AdvancementTree tree = new AdvancementTree();
+         tree.addAll(this.advancements.values());
+         tree.repositionNodes();

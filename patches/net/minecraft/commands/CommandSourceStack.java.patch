@@ -1,0 +1,111 @@
+--- a/net/minecraft/commands/CommandSourceStack.java
++++ b/net/minecraft/commands/CommandSourceStack.java
+@@ -48,10 +_,16 @@
+ import net.minecraft.world.phys.Vec3;
+ import org.jspecify.annotations.Nullable;
+ 
++// CraftBukkit start
++import com.mojang.brigadier.tree.CommandNode;
++import net.minecraft.server.permissions.Permission;
++import net.minecraft.server.permissions.Permissions;
++// CraftBukkit end
++
+ public class CommandSourceStack implements SharedSuggestionProvider, ExecutionCommandSource<CommandSourceStack> {
+     public static final SimpleCommandExceptionType ERROR_NOT_PLAYER = new SimpleCommandExceptionType(Component.translatable("permissions.requires.player"));
+     public static final SimpleCommandExceptionType ERROR_NOT_ENTITY = new SimpleCommandExceptionType(Component.translatable("permissions.requires.entity"));
+-    private final CommandSource source;
++    public final CommandSource source; // CraftBukkit - public access
+     private final Vec3 worldPosition;
+     private final ServerLevel level;
+     private final PermissionSet permissions;
+@@ -64,6 +_,10 @@
+     private final Vec2 rotation;
+     private final CommandSigningContext signingContext;
+     private final TaskChainer chatMessageChainer;
++    // CraftBukkit start
++    private final PermissionSet bukkitPermissions;
++    public volatile CommandNode currentCommand;
++    // CraftBukkit end
+ 
+     public CommandSourceStack(
+         CommandSource source, Vec3 position, Vec2 rotation, ServerLevel level, PermissionSet permissions, MinecraftServer server, Entity entity
+@@ -132,7 +_,40 @@
+         this.rotation = rotation;
+         this.signingContext = signingContext;
+         this.chatMessageChainer = chatMessageChainer;
+-    }
++        // CraftBukkit start
++        this.bukkitPermissions = new DelegatePermissionSet(permissions);
++    }
++
++    private class DelegatePermissionSet implements PermissionSet {
++
++        private final PermissionSet handle;
++
++        public DelegatePermissionSet(PermissionSet handle) {
++            this.handle = handle;
++        }
++
++        @Override
++        public boolean hasPermission(Permission permission) {
++            boolean hasPermission = handle.hasPermission(permission);
++
++            CommandNode currentCommand = CommandSourceStack.this.currentCommand;
++            if (currentCommand != null) {
++                return hasPermission(hasPermission, org.bukkit.craftbukkit.command.VanillaCommandWrapper.getPermission(currentCommand));
++            }
++
++            if (permission.equals(Permissions.COMMANDS_ENTITY_SELECTORS)) {
++                return hasPermission(hasPermission, "minecraft.command.selector");
++            }
++
++            return hasPermission;
++        }
++
++        public boolean hasPermission(boolean hasPermission, String bukkitPermission) {
++            // World is null when loading functions
++            return ((getLevel() == null || !getLevel().getCraftServer().ignoreVanillaPermissions) && hasPermission) || getBukkitSender().hasPermission(bukkitPermission);
++        }
++    }
++    // CraftBukkit end
+ 
+     public CommandSourceStack withSource(CommandSource source) {
+         return this.source == source
+@@ -372,7 +_,7 @@
+ 
+     @Override
+     public PermissionSet permissions() {
+-        return this.permissions;
++        return this.bukkitPermissions; // CraftBukkit
+     }
+ 
+     public Vec3 getPosition() {
+@@ -478,13 +_,13 @@
+         GameRules gameRules = this.level.getGameRules();
+         if (gameRules.get(GameRules.SEND_COMMAND_FEEDBACK)) {
+             for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
+-                if (player.commandSource() != this.source && this.server.getPlayerList().isOp(player.nameAndId())) {
++                if (player.commandSource() != this.source && player.getBukkitEntity().hasPermission("minecraft.admin.command_feedback")) { // CraftBukkit
+                     player.sendSystemMessage(broadcast);
+                 }
+             }
+         }
+ 
+-        if (this.source != this.server && gameRules.get(GameRules.LOG_ADMIN_COMMANDS)) {
++        if (this.source != this.server && gameRules.get(GameRules.LOG_ADMIN_COMMANDS) && !org.spigotmc.SpigotConfig.silentCommandBlocks) { // Spigot
+             this.server.sendSystemMessage(broadcast);
+         }
+     }
+@@ -579,6 +_,12 @@
+     public boolean isSilent() {
+         return this.silent;
+     }
++
++    // CraftBukkit start
++    public org.bukkit.command.CommandSender getBukkitSender() {
++        return source.getBukkitSender(this);
++    }
++    // CraftBukkit end
+ 
+     public interface NamesProvider {
+         CommandSourceStack.NamesProvider FOR_ENTITY = new CommandSourceStack.NamesProvider() {

@@ -1,0 +1,16 @@
+--- a/net/minecraft/advancements/AdvancementTree.java
++++ b/net/minecraft/advancements/AdvancementTree.java
+@@ -51,11 +51,11 @@
+             }
+         }
+ 
+-        AdvancementTree.LOGGER.info("Loaded {} advancements", this.nodes.size());
++        // AdvancementTree.LOGGER.info("Loaded {} advancements", this.nodes.size()); // CraftBukkit - moved to AdvancementDataWorld#reload
+     }
+ 
+     private boolean tryInsert(AdvancementHolder holder) {
+-        Identifier identifier = (Identifier) holder.value().parent().orElse((Object) null);
++        Identifier identifier = (Identifier) holder.value().parent().orElse(null); // CraftBukkit - decompile error
+         AdvancementNode advancementnode;
+ 
+         if (identifier != null) {

@@ -49,6 +49,15 @@ public final class Sha1 {
         }
     }
 
+    /** SHA-256 of an in-memory string, for building cache fingerprints. */
+    public static String sha256(byte[] data) {
+        try {
+            return hex(MessageDigest.getInstance("SHA-256").digest(data));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static String hash(InputStream in, String algorithm) {
         try {
             MessageDigest digest = MessageDigest.getInstance(algorithm);

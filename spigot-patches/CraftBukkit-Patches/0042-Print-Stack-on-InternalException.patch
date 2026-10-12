@@ -1,0 +1,21 @@
+From e6ce08ab37cc728594ba5f1b82d05d2e935fc893 Mon Sep 17 00:00:00 2001
+From: md_5 <git@md-5.net>
+Date: Sun, 13 Apr 2014 09:00:59 +1000
+Subject: [PATCH] Print Stack on InternalException
+
+
+diff --git a/src/main/java/net/minecraft/network/Connection.java b/src/main/java/net/minecraft/network/Connection.java
+index 4fbb55691..bc71bdbe5 100644
+--- a/src/main/java/net/minecraft/network/Connection.java
++++ b/src/main/java/net/minecraft/network/Connection.java
+@@ -154,6 +154,7 @@ public class Connection extends SimpleChannelInboundHandler<Packet<?>> {
+ 
+             }
+         }
++        if (net.minecraft.server.MinecraftServer.getServer().isDebugging()) cause.printStackTrace(); // Spigot
+     }
+ 
+     protected void channelRead0(ChannelHandlerContext ctx, Packet<?> packet) {
+-- 
+2.55.0
+

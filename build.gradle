@@ -11,8 +11,9 @@ def javaVersion = (project.findProperty('javaVersion') ?: '25') as int
 def workDir = layout.projectDirectory.dir('work')
 def cacheDir = workDir.dir('cache')
 
-// Only work/main, work/client and work/brigadier (the editable trees) show as
-// sources; everything else under work/ is pipeline state and is hidden.
+// Only work/main and work/brigadier (the editable trees) show as sources;
+// everything else under work/ is pipeline state and is hidden. There is no
+// client tree: Lumance ships a dedicated server only.
 def excludedWorkDirs = ['cache'].collect { workDir.dir(it).asFile }
 idea {
     module {
@@ -33,6 +34,10 @@ configurations {
     decompiler
     fabricLibraries
     fabricMods
+    // Lumance - Bukkit/Paper runtime libraries that Mojang's server bundle does not ship.
+    // The launcher assembles its classpath from the bundle alone, so these are embedded
+    // in the bootstrap jar under lumance/lib/ and extracted next to the other libraries.
+    bootstrapLibs
 }
 
 // Fabric Loader stack, resolved here and downloaded by the launcher on demand.
@@ -72,12 +77,15 @@ sourceSets {
         java {
             srcDirs = [workDir.dir('main/java'), workDir.dir('brigadier/java'), 'src/lumance/java']
         }
-    }
-    client {
-        java {
-            srcDirs = [workDir.dir('client/java'), workDir.dir('brigadier/java')]
+        // Bukkit/CraftBukkit's bundled configuration files (configurations/help.yml,
+        // bukkit.yml, commands.yml). HelpYamlReader loads them off the classpath at
+        // CraftServer construction, so they must land in the repacked server jar.
+        resources {
+            srcDirs = ['src/lumance/resources']
         }
     }
+    // Lumance is a dedicated server only: there is no client source set. Players connect with
+    // their own vanilla/Fabric client; see docs/workflow.md.
     // The default main source set (src/main/java, src/main/resources) IS the
     // built-in Fabric mod: Lumance's own mixins + entrypoint. It ships inside
     // the bootstrap and is always loaded via fabric.addMods (see assembleBootstrap).
@@ -87,22 +95,122 @@ dependencies {
     // Brigadier is compiled from editable sources (see below), so its binary is
     // excluded everywhere: it must never shadow - or duplicate - those classes.
     serverImplementation fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar'], exclude: ['**/brigadier/**'])
-    clientImplementation fileTree(dir: cacheDir.dir('client-libs'), include: ['**/*.jar'], exclude: ['**/brigadier/**'])
-    // Shared game code lives in the server tree only; the client resolves it
-    // from the compiled server classes (which also orders the compile after it).
-    clientImplementation sourceSets.server.output
     // Compile-only annotation libraries Mojang uses but does not ship in the game jars
     // (same set NeoForm declares for this version).
     serverCompileOnly 'com.google.code.findbugs:jsr305:3.0.2'
     serverCompileOnly 'org.jetbrains:annotations:26.0.2-1'
-    clientCompileOnly 'com.google.code.findbugs:jsr305:3.0.2'
-    clientCompileOnly 'org.jetbrains:annotations:26.0.2-1'
+    // Bukkit/CraftBukkit/Spigot deps for the vendored API+impl sources in
+    // src/lumance/java and the NMS (CraftBukkit) patches in patches/:
+    // - md_5 bungee chat (+serializer, which carries the dialog API on newer
+    //   builds) for net.md_5.bungee.api.chat.* / dialog.*
+    // - snakeyaml for org.bukkit.configuration.file.YamlConfiguration
+    // - commons-lang (v2) for org.apache.commons.lang.* (vanilla only has lang3)
+    // - jline for the CraftBukkit console (org.jline.terminal/reader)
+    // - gson explicit (also in vanilla libs, but Bukkit code references it directly)
+    serverImplementation "net.md-5:bungeecord-chat:${project.findProperty('bungeecordChatVersion')}"
+    serverImplementation "net.md-5:bungeecord-serializer:${project.findProperty('bungeecordSerializerVersion')}"
+    // Lumance start - Adventure, for the component-typed parts of the Paper API that plugins call
+    // (Player#sendActionBar(Component), Audience, ...). Compile-time only: at runtime these classes
+    // arrive with whichever plugin brings them, exactly as on a stock Spigot server, so nothing is
+    // added to the distribution for servers that never touch them.
+    serverCompileOnly "net.kyori:adventure-api:${project.findProperty('adventureVersion')}"
+    serverCompileOnly "net.kyori:adventure-text-serializer-gson:${project.findProperty('adventureVersion')}"
+    serverCompileOnly 'net.kyori:examination-api:1.3.0'
+    serverCompileOnly 'net.kyori:examination-string:1.3.0'
+    // Lumance end
+    // Lumance start - Caffeine backs the internal LoadingCaches in net.minecraft. Every one of them
+    // is a private field, so this never appears in a plugin or mod's view of the API.
+    serverImplementation "com.github.ben-manes.caffeine:caffeine:${project.findProperty('caffeineVersion')}"
+    // Lumance end
+    serverImplementation "org.yaml:snakeyaml:${project.findProperty('snakeyamlVersion')}"
+    serverImplementation "commons-lang:commons-lang:${project.findProperty('commonsLangVersion')}"
+    serverImplementation "org.jline:jline:${project.findProperty('jlineVersion')}"
+    // Log4j2 appender feeding the JLine console; transitive log4j-core/jline-reader
+    // are dropped (vanilla ships log4j, jline is pinned by jlineVersion).
+    serverImplementation("net.minecrell:terminalconsoleappender:${project.findProperty('terminalConsoleAppenderVersion')}") {
+        exclude group: 'org.apache.logging.log4j'
+        exclude group: 'org.jline', module: 'jline-reader'
+    }
+
+    // Lumance start - the subset Mojang's bundle does not provide, shipped inside the bootstrap.
+    // Transitive deps of jline are required (it is only an aggregator jar), but anything the
+    // bundle already ships (gson, guava, ...) is excluded so the two copies cannot shadow.
+    bootstrapLibs "net.md-5:bungeecord-chat:${project.findProperty('bungeecordChatVersion')}"
+    bootstrapLibs "net.md-5:bungeecord-serializer:${project.findProperty('bungeecordSerializerVersion')}"
+    bootstrapLibs "org.yaml:snakeyaml:${project.findProperty('snakeyamlVersion')}"
+    bootstrapLibs "commons-lang:commons-lang:${project.findProperty('commonsLangVersion')}"
+    bootstrapLibs "org.jline:jline:${project.findProperty('jlineVersion')}"
+    // Lumance start - Caffeine backs the internal LoadingCaches in net.minecraft. It must be a real
+    // runtime library, not a compile-time one: our own code calls it, so relying on a mod that
+    // happens to bundle its own copy (c2me does) would break the moment that mod is removed.
+    bootstrapLibs "com.github.ben-manes.caffeine:caffeine:${project.findProperty('caffeineVersion')}"
+    // Lumance end
+    // Lumance - jline's aggregate artifact carries no POM dependencies, so the modules that
+    // actually hold the reader/terminal classes must be listed explicitly.
+    bootstrapLibs "org.jline:jline-terminal:${project.findProperty('jlineVersion')}"
+    bootstrapLibs "org.jline:jline-reader:${project.findProperty('jlineVersion')}"
+    bootstrapLibs "org.jline:jline-terminal-ffm:${project.findProperty('jlineVersion')}"
+    bootstrapLibs "org.jline:jline-terminal-jni:${project.findProperty('jlineVersion')}"
+    bootstrapLibs "org.jline:jline-native:${project.findProperty('jlineVersion')}"
+    bootstrapLibs("net.minecrell:terminalconsoleappender:${project.findProperty('terminalConsoleAppenderVersion')}") {
+        exclude group: 'org.apache.logging.log4j'
+        exclude group: 'org.jline', module: 'jline-reader'
+    }
+    // Lumance - Maven resolver (Eclipse Aether) for Bukkit's LibraryLoader, which resolves the
+    // libraries a plugin declares in its plugin.yml. These are also declared as
+    // serverImplementation below so LibraryLoader compiles, but that configuration is
+    // compile-time only and nothing puts the jars in libraries/lumance, so the server came up with
+    //   "Could not initialize LibraryLoader (missing dependencies?)"
+    // and silently dropped plugin library loading. Transitive dependencies (httpclient, slf4j-api,
+    // javax.inject, plexus-utils, ...) come along with the configuration.
+    bootstrapLibs "org.eclipse.aether:aether-api:${project.findProperty('aetherVersion')}"
+    bootstrapLibs "org.eclipse.aether:aether-spi:${project.findProperty('aetherVersion')}"
+    bootstrapLibs "org.eclipse.aether:aether-impl:${project.findProperty('aetherVersion')}"
+    bootstrapLibs "org.eclipse.aether:aether-connector-basic:${project.findProperty('aetherVersion')}"
+    bootstrapLibs "org.eclipse.aether:aether-transport-http:${project.findProperty('aetherVersion')}"
+    bootstrapLibs "org.apache.maven:maven-aether-provider:${project.findProperty('mavenAetherProviderVersion')}"
+    configurations.bootstrapLibs {
+        exclude group: 'com.google.code.gson'
+        exclude group: 'com.google.guava'
+        exclude group: 'com.google.errorprone'
+        exclude group: 'com.google.code.findbugs'
+        exclude group: 'org.checkerframework'
+        // Lumance - the Maven resolver drags in its own copies of these two, and they MUST NOT be
+        // shipped: Minecraft's bundle already contains newer versions that the game is compiled
+        // against, and libraries/lumance is searched first.
+        //   commons-lang3: resolver pulls 3.4, Mojang ships 3.20.0. MutableObject only implements
+        //     Supplier from 3.13 on, so datafixerupper dies at startup during Main.main with
+        //     "IncompatibleClassChangeError: Class
+        //      org.apache.commons.lang3.mutable.MutableObject does not implement the requested
+        //      interface java.util.function.Supplier" - after "Loading libraries, please wait...",
+        //     with no crash report and a silent exit 0.
+        //   slf4j-api: Mojang ships 2.0.17 together with log4j-slf4j2-impl, which is bound to it;
+        //     a second copy in libraries/lumance can shadow the one that binding was built for.
+        exclude group: 'org.apache.commons', module: 'commons-lang3'
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+        // Lumance end
+    }
+    // Lumance end
+    serverImplementation "com.google.code.gson:gson:${project.findProperty('gsonVersion')}"
+    // ASM for CraftBukkit bytecode remapping tools (Commodore, Reroute/*).
+    serverImplementation "org.ow2.asm:asm:${project.findProperty('fabricAsmVersion')}"
+    serverImplementation "org.ow2.asm:asm-commons:${project.findProperty('fabricAsmVersion')}"
+    serverImplementation "org.ow2.asm:asm-tree:${project.findProperty('fabricAsmVersion')}"
+    // Maven resolver (Eclipse Aether) for Bukkit LibraryLoader.
+    serverImplementation "org.eclipse.aether:aether-api:${project.findProperty('aetherVersion')}"
+    serverImplementation "org.eclipse.aether:aether-spi:${project.findProperty('aetherVersion')}"
+    serverImplementation "org.eclipse.aether:aether-impl:${project.findProperty('aetherVersion')}"
+    serverImplementation "org.eclipse.aether:aether-connector-basic:${project.findProperty('aetherVersion')}"
+    serverImplementation "org.eclipse.aether:aether-transport-http:${project.findProperty('aetherVersion')}"
+    serverImplementation "org.apache.maven:maven-aether-provider:${project.findProperty('mavenAetherProviderVersion')}"
     // Built-in mod compiles against the patched server classes, the game
     // libraries and the Fabric stack (loader API + mixin annotations).
     implementation sourceSets.server.output
     implementation fileTree(dir: cacheDir.dir('libs'), include: ['**/*.jar'], exclude: ['**/brigadier/**'])
     implementation "net.fabricmc:fabric-loader:${project.findProperty('fabricLoaderVersion')}"
     implementation "net.fabricmc:sponge-mixin:${project.findProperty('fabricMixinVersion')}"
+    implementation "net.md-5:bungeecord-chat:${project.findProperty('bungeecordChatVersion')}"
+    implementation "org.yaml:snakeyaml:${project.findProperty('snakeyamlVersion')}"
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -254,7 +362,9 @@ tasks.register('applyPatches', lumance.build.ApplyPatchesTask) {
 tasks.register('setup') {
     group = 'lumance'
     description = 'One-time setup: download, decompile and patch game sources for editing.'
-    dependsOn('applyPatches', 'applyClientPatches', 'applyBrigadierPatches')
+    // Server + brigadier only. The client tree is gone, so NeoForm's client patches are
+    // never fetched or applied either (see prepareClientSources removal below).
+    dependsOn('applyPatches', 'applyBrigadierPatches')
 }
 
 // Opt-in fuzzy pass for hand-dropped patches (PaperMC-style): same trees and
@@ -272,19 +382,6 @@ tasks.register('fuzzyApplyPatches', lumance.build.ApplyPatchesTask) {
     fuzzy.set(true)
     rejectsDir.set(workDir.dir('rejects').asFile.absolutePath)
     dependsOn('syncSources')
-}
-
-tasks.register('fuzzyApplyClientPatches', lumance.build.ApplyPatchesTask) {
-    group = 'lumance'
-    description = 'Applies client-track patches with fuzzy fallback for hand-dropped patches.'
-    patchedSources.set(workDir.dir('client/java'))
-    patchesDir.set(layout.projectDirectory.dir('patches'))
-    cleanSources.set(cacheDir.dir('clean-client-sources'))
-    markerFile.set(cacheDir.file('applied-client-patches.txt'))
-    track.set('CLIENT')
-    fuzzy.set(true)
-    rejectsDir.set(workDir.dir('rejects').asFile.absolutePath)
-    dependsOn('syncClientSources')
 }
 
 tasks.register('fuzzyApplyBrigadierPatches', lumance.build.ApplyPatchesTask) {
@@ -312,18 +409,6 @@ tasks.register('genPatches', lumance.build.GenPatchesTask) {
     dependsOn('prepareCleanSources')
 }
 
-tasks.register('genPatchesClient', lumance.build.GenPatchesTask) {
-    group = 'lumance'
-    description = 'Regenerates client-track patches/*.patch from edits in work/client/java.'
-    cleanSources.set(cacheDir.dir('clean-client-sources'))
-    patchedSources.set(workDir.dir('client/java'))
-    patchesDir.set(layout.projectDirectory.dir('patches'))
-    workDirectory.set(workDir)
-    stateName.set('genpatches-client-state.txt')
-    track.set('CLIENT')
-    dependsOn('prepareClientSources')
-}
-
 tasks.register('genPatchesBrigadier', lumance.build.GenPatchesTask) {
     group = 'lumance'
     description = 'Regenerates brigadier-track patches/*.patch from edits in work/brigadier/java.'
@@ -336,135 +421,9 @@ tasks.register('genPatchesBrigadier', lumance.build.GenPatchesTask) {
     dependsOn('decompileBrigadier')
 }
 
-// The three generators share the patches/ tree, so order them deterministically.
-tasks.named('genPatchesClient') {
-    mustRunAfter('genPatches')
-}
+// The two generators share the patches/ tree, so order them deterministically.
 tasks.named('genPatchesBrigadier') {
-    mustRunAfter('genPatchesClient')
-}
-
-// ---------------------------------------------------------------------------
-// Client (same shape as the server: download, decompile, patch, compile).
-// Running the client needs assets, natives and auth and is out of scope;
-// this track exists so client code stays viewable, editable and compilable.
-// ---------------------------------------------------------------------------
-
-tasks.register('downloadClient', lumance.build.DownloadTask) {
-    group = 'lumance'
-    description = 'Downloads the vanilla client jar from Mojang.'
-    propsFile.set(cacheDir.file('vanilla.properties'))
-    urlKey.set('client.url')
-    sha1Key.set('client.sha1')
-    output.set(cacheDir.file('client.jar'))
-    dependsOn('resolveVanilla')
-}
-
-tasks.register('resolveClientLibraries', lumance.build.ResolveClientLibrariesTask) {
-    group = 'lumance'
-    description = 'Downloads this OS client library set from Mojang.'
-    versionJson.set(cacheDir.file('version.json'))
-    libsDir.set(cacheDir.dir('client-libs'))
-    libsIndex.set(cacheDir.file('client-libs.index'))
-    dependsOn('resolveVanilla')
-}
-
-tasks.register('writeDecompilerClientClasspath') {
-    group = 'lumance'
-    description = 'Writes the client library list passed to the decompiler (-cfg).'
-    def output = cacheDir.file('decompiler-client-classpath.txt')
-    inputs.dir(cacheDir.dir('client-libs'))
-    outputs.file(output)
-    dependsOn('resolveClientLibraries')
-    doLast {
-        def libs = fileTree(dir: cacheDir.dir('client-libs'), include: ['**/*.jar']).files.collect { "-e=${it.absolutePath}" }.sort()
-        output.asFile.text = libs.join('\n') + '\n'
-    }
-}
-
-tasks.register('decompileClient', JavaExec) {
-    group = 'lumance'
-    description = 'Decompiles the vanilla client jar.'
-    classpath = configurations.decompiler
-    mainClass = 'org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler'
-    maxHeapSize = '8g'
-    args = [
-            '--decompile-inner',
-            '--remove-bridge',
-            '--decompile-generics',
-            '--ascii-strings',
-            '--remove-synthetic',
-            '--include-classpath',
-            '--ignore-invalid-bytecode',
-            '--bytecode-source-mapping',
-            '--dump-code-lines',
-            '--indent-string=    ',
-            '--log-level=WARN',
-            '-cfg',
-            cacheDir.file('decompiler-client-classpath.txt').asFile.absolutePath,
-            cacheDir.file('client.jar').asFile.absolutePath,
-            cacheDir.dir('raw-client-sources').asFile.absolutePath,
-    ]
-    inputs.file(cacheDir.file('client.jar'))
-    inputs.file(cacheDir.file('decompiler-client-classpath.txt'))
-    outputs.dir(cacheDir.dir('raw-client-sources'))
-    dependsOn('downloadClient', 'writeDecompilerClientClasspath')
-}
-
-tasks.register('prepareClientSources', lumance.build.PrepareCleanSourcesTask) {
-    group = 'lumance'
-    description = 'Builds work/cache/clean-client-sources: raw decompile plus NeoForm fixups.'
-    rawSources.set(cacheDir.dir('raw-client-sources'))
-    patchesDir.set(cacheDir.dir('neoform/client-patches'))
-    extraPatchesDirs.from(cacheDir.dir('neoform/patches'))
-    // Files identical to the server tree are dropped: the server owns shared code.
-    sharedSources.set(cacheDir.dir('clean-sources'))
-    cleanSources.set(cacheDir.dir('clean-client-sources'))
-    marker.set(cacheDir.file('.clean-client-marker'))
-    dependsOn('decompileClient', 'fetchNeoForm', 'prepareCleanSources')
-}
-
-tasks.register('syncClientSources', Copy) {
-    group = 'lumance'
-    description = 'Copies clean client sources to work/client/java for editing.'
-    includeEmptyDirs = false
-    from(cacheDir.dir('clean-client-sources')) {
-        include '**/*.java'
-    }
-    into(workDir.dir('client/java'))
-    dependsOn('prepareClientSources')
-    // Never wipe user edits on repeat runs unless explicitly refreshed.
-    onlyIf { !workDir.dir('client/java').asFile.exists() || project.hasProperty('refreshSources') }
-    doFirst {
-        if (project.hasProperty('refreshSources')) {
-            project.delete(workDir.dir('client/java'))
-        }
-    }
-    // A fresh copy means nothing is applied yet; the marker is rebuilt by applyClientPatches.
-    doLast { cacheDir.file('applied-client-patches.txt').asFile.delete() }
-}
-
-tasks.register('applyClientPatches', lumance.build.ApplyPatchesTask) {
-    group = 'lumance'
-    description = 'Applies client-track patches/*.patch onto work/client/java.'
-    patchedSources.set(workDir.dir('client/java'))
-    patchesDir.set(layout.projectDirectory.dir('patches'))
-    cleanSources.set(cacheDir.dir('clean-client-sources'))
-    markerFile.set(cacheDir.file('applied-client-patches.txt'))
-    track.set('CLIENT')
-    fuzzy.set(false)
-    dependsOn('syncClientSources')
-}
-
-tasks.register('repackClient', lumance.build.RepackTask) {
-    group = 'lumance'
-    description = 'Builds the patched client jar (vanilla + compiled classes).'
-    baseJar.set(cacheDir.file('client.jar'))
-    classesDirs.from(sourceSets.client.output.classesDirs)
-    lumanceVersion.set(project.version.toString())
-    mcVersion.set(project.findProperty('mcVersion'))
-    outputJar.set(layout.buildDirectory.file('patched/lumance-client.jar'))
-    dependsOn('compileClientJava', 'downloadClient')
+    mustRunAfter('genPatches')
 }
 
 // ---------------------------------------------------------------------------
@@ -540,26 +499,16 @@ tasks.named('compileServerJava') {
     }
 }
 
-tasks.named('compileClientJava') {
-    options.forkOptions.memoryMaximumSize = '2g'
-    options.compilerArgs.addAll(['-Xmaxerrs', '5000', '-Xmaxwarns', '5000'])
-    dependsOn('resolveClientLibraries', 'applyClientPatches', 'applyBrigadierPatches')
-    doFirst {
-        if (!workDir.dir('client/java').asFile.isDirectory()) {
-            throw new GradleException('work/client/java is missing - run `gradlew setup` first.')
-        }
-    }
-}
-
 tasks.register('repack', lumance.build.RepackTask) {
     group = 'lumance'
     description = 'Builds the raw patched server jar (vanilla + compiled classes).'
     baseJar.set(cacheDir.file('server.jar'))
     classesDirs.from(sourceSets.server.output.classesDirs)
+    resourceDirs.from(sourceSets.server.output.resourcesDir)
     lumanceVersion.set(project.version.toString())
     mcVersion.set(project.findProperty('mcVersion'))
     outputJar.set(layout.buildDirectory.file('patched/lumance-server-raw.jar'))
-    dependsOn('compileServerJava', 'extractBundle')
+    dependsOn('compileServerJava', 'processServerResources', 'extractBundle')
 }
 
 tasks.register('makeOverlay', lumance.build.OverlayDiffTask) {
@@ -601,6 +550,16 @@ tasks.named('processResources') {
     }
 }
 
+// Lumance start - the spigot-api Maven descriptor Bukkit.getBukkitVersion() reads carries the
+// Minecraft version. Without the substitution it would ship a literal "${MC_VERSION}" and every
+// plugin that version-gates on that call would see a nonsense version.
+tasks.named('processServerResources') {
+    filesMatching('META-INF/maven/org.spigotmc/spigot-api/pom.properties') {
+        expand('MC_VERSION': project.findProperty('mcVersion'))
+    }
+}
+// Lumance end
+
 tasks.named('compileJava') {
     options.forkOptions.memoryMaximumSize = '2g'
     // Game classes come from the compiled server tree; game libs resolve the rest.
@@ -620,6 +579,14 @@ tasks.register('modJar', Jar) {
     archiveClassifier = ''
     destinationDirectory = layout.buildDirectory.dir('mod')
     from(sourceSets.main.output)
+    // Lumance - deliberately does NOT bundle terminalconsoleappender here.
+    //
+    // It was tried, and it hides a real bug instead of fixing it. log4j discovers the appender
+    // through META-INF/.../Log4j2Plugins.dat, and a mod jar is not one of the classloaders log4j
+    // enumerates, so the descriptor stayed invisible and the failure looked identical
+    // ("No appender named TerminalConsole was configured"). See consoleLibraries() in the launcher
+    // for the actual fix; the appender must stay an ordinary library so Fabric's game loader can
+    // both see its descriptor and load its classes.
 }
 
 tasks.register('writeBootstrapManifest', lumance.build.WriteBootstrapManifestTask) {
@@ -634,10 +601,11 @@ tasks.register('writeBootstrapManifest', lumance.build.WriteBootstrapManifestTas
     fabricLibsDir.set(layout.buildDirectory.dir('fabric-libs'))
     bundledModCoordinates.set(bundledModCoords.join(','))
     bundledModsDir.set(layout.buildDirectory.dir('fabric-mods'))
-    log4jConfig.set(layout.projectDirectory.file('server-files/log4j2.xml'))
+    log4jConfig.set(layout.projectDirectory.file('launcher/src/main/resources/lumance/log4j2.xml'))
     modJar.set(layout.buildDirectory.file('mod/lumance-mod.jar'))
     lumanceVersion.set(project.version.toString())
     output.set(layout.buildDirectory.file('bootstrap/lumance.properties'))
+    bootstrapLibs.from(configurations.bootstrapLibs)
     dependsOn('canonicalPatched', 'resolveFabric', 'resolveFabricMods', 'modJar')
 }
 
@@ -659,11 +627,17 @@ tasks.register('assembleBootstrap', Jar) {
         into 'lumance'
         rename { 'mod.jar' }
     }
-    // Console logging config; the launcher extracts it to cache/ and points
-    // log4j at it (vanilla config stays untouched inside its own jar).
-    from('server-files/log4j2.xml') {
-        into 'lumance'
+    // Lumance start - console logging config, owned by the launcher at
+    // src/main/resources/lumance/log4j2.xml. The launcher jar is already folded in above, so it
+    // arrives at lumance/log4j2.xml inside the bootstrap; Main extracts it to cache/ and points
+    // log4j at it, leaving Mojang's own config untouched inside its jar. Nothing to copy here.
+    // Lumance start - Bukkit/Paper runtime libraries Mojang's bundle lacks (jline, snakeyaml,
+    // bungeecord-chat/serializer, commons-lang). The launcher extracts these into the same
+    // libraries/ tree it builds the server classpath from.
+    from(configurations.bootstrapLibs) {
+        into 'lumance/lib'
     }
+    // Lumance end
     manifest {
         attributes(
                 'Main-Class': 'gr1mly4memes.launcher.lumance.Main',
@@ -675,7 +649,7 @@ tasks.register('assembleBootstrap', Jar) {
 }
 
 tasks.named('build') {
-    dependsOn('assembleBootstrap', 'repackClient')
+    dependsOn('assembleBootstrap')
 }
 
 // ---------------------------------------------------------------------------
@@ -715,7 +689,7 @@ tasks.register('runFabricServer', JavaExec) {
             addMods.add(it.absolutePath)
         }
         systemProperty('fabric.addMods', addMods.join(File.pathSeparator))
-        systemProperty('log4j.configurationFile', layout.projectDirectory.file('server-files/log4j2.xml').asFile.absolutePath)
+        systemProperty('log4j.configurationFile', layout.projectDirectory.file('launcher/src/main/resources/lumance/log4j2.xml').asFile.absolutePath)
         systemProperty('log4j.skipJansi', true)
     }
 }

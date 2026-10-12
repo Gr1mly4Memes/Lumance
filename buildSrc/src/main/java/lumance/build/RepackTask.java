@@ -44,6 +44,15 @@ public abstract class RepackTask extends DefaultTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getClassesDirs();
 
+    // Lumance start - non-class files (Bukkit's configurations/*.yml, etc.) that must be
+    // overlaid into the patched jar too. HelpYamlReader loads configurations/help.yml off the
+    // classpath when CraftServer is constructed, so classes-only repacking crashes the server.
+    @InputFiles
+    @IgnoreEmptyDirectories
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceDirs();
+    // Lumance end
+
     @Input
     public abstract Property<String> getLumanceVersion();
 
@@ -85,6 +94,22 @@ public abstract class RepackTask extends DefaultTask {
                 }
             }
         }
+        // Lumance start - resources overlay (any non-class file); they win over same-named
+        // vanilla entries, matching the class overlay above.
+        for (File dir : getResourceDirs().getFiles()) {
+            if (!dir.isDirectory()) {
+                continue;
+            }
+            final Path root = dir.toPath();
+            try (var stream = Files.walk(root)) {
+                for (Path file : (Iterable<Path>) stream::iterator) {
+                    if (Files.isRegularFile(file)) {
+                        overlay.put(root.relativize(file).toString().replace(File.separatorChar, '/'), file);
+                    }
+                }
+            }
+        }
+        // Lumance end
 
         outputJar.getParentFile().mkdirs();
         File part = new File(outputJar.getParentFile(), outputJar.getName() + ".part");

@@ -1,0 +1,11 @@
+--- a/net/minecraft/network/FriendlyByteBuf.java
++++ b/net/minecraft/network/FriendlyByteBuf.java
+@@ -462,7 +462,7 @@
+ 
+         try {
+             NbtIo.writeAnyTag(tag, new ByteBufOutputStream(output));
+-        } catch (IOException ioexception) {
++        } catch (Exception ioexception) { // CraftBukkit - IOException -> Exception
+             throw new EncoderException(ioexception);
+         }
+     }

@@ -1,0 +1,55 @@
+From 3461bb132595eecbd95bb5331b1ca3dd12a384da Mon Sep 17 00:00:00 2001
+From: md_5 <git@md-5.net>
+Date: Fri, 9 Jun 2017 16:29:31 +1000
+Subject: [PATCH] Configurable Advancement Disabling
+
+Allow disabling any (or all) inbuilt advancements with a configuration option.
+
+diff --git a/src/main/java/net/minecraft/server/PlayerAdvancements.java b/src/main/java/net/minecraft/server/PlayerAdvancements.java
+index ab1049600..999d812e5 100644
+--- a/src/main/java/net/minecraft/server/PlayerAdvancements.java
++++ b/src/main/java/net/minecraft/server/PlayerAdvancements.java
+@@ -133,6 +133,7 @@ public class PlayerAdvancements {
+     }
+ 
+     public void save() {
++        if (org.spigotmc.SpigotConfig.disableAdvancementSaving) return; // Spigot
+         JsonElement jsonelement = (JsonElement) this.codec.encodeStart(JsonOps.INSTANCE, this.asData()).getOrThrow();
+ 
+         try {
+diff --git a/src/main/java/net/minecraft/server/ServerAdvancementManager.java b/src/main/java/net/minecraft/server/ServerAdvancementManager.java
+index edda7af8f..cbf1136e1 100644
+--- a/src/main/java/net/minecraft/server/ServerAdvancementManager.java
++++ b/src/main/java/net/minecraft/server/ServerAdvancementManager.java
+@@ -30,6 +30,12 @@ public class ServerAdvancementManager {
+         ImmutableMap.Builder<Identifier, AdvancementHolder> immutablemap_builder = ImmutableMap.builder();
+ 
+         holderlookup_registrylookup.listElements().forEach((holder_reference) -> {
++            // Spigot start
++            Identifier identifier = holder_reference.key().identifier();
++            if (org.spigotmc.SpigotConfig.disabledAdvancements != null && (org.spigotmc.SpigotConfig.disabledAdvancements.contains("*") || org.spigotmc.SpigotConfig.disabledAdvancements.contains(identifier.toString()) || org.spigotmc.SpigotConfig.disabledAdvancements.contains(identifier.getNamespace()))) {
++                return;
++            }
++            // Spigot end
+             validate(registries, holder_reference);
+             immutablemap_builder.put(holder_reference.key().identifier(), new AdvancementHolder(holder_reference.key().identifier(), (Advancement) holder_reference.value()));
+         });
+diff --git a/src/main/java/org/spigotmc/SpigotConfig.java b/src/main/java/org/spigotmc/SpigotConfig.java
+index ac9d222e8..3a42829ee 100644
+--- a/src/main/java/org/spigotmc/SpigotConfig.java
++++ b/src/main/java/org/spigotmc/SpigotConfig.java
+@@ -382,4 +382,11 @@ public class SpigotConfig
+             Bukkit.getLogger().info( "Debug logging is disabled" );
+         }
+     }
++
++    public static boolean disableAdvancementSaving;
++    public static List<String> disabledAdvancements;
++    private static void disabledAdvancements() {
++        disableAdvancementSaving = getBoolean("advancements.disable-saving", false);
++        disabledAdvancements = getList("advancements.disabled", Arrays.asList(new String[]{"minecraft:story/disabled"}));
++    }
+ }
+-- 
+2.55.0
+

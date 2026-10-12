@@ -1,0 +1,33 @@
+From 261dea8d4eb40c0a96ccf93a3a19ceb541edf95c Mon Sep 17 00:00:00 2001
+From: DerFlash <bte@freenet.de>
+Date: Tue, 9 Jul 2013 00:11:12 +0200
+Subject: [PATCH] Save ticks lived to nbttag
+
+
+diff --git a/src/main/java/net/minecraft/world/entity/Entity.java b/src/main/java/net/minecraft/world/entity/Entity.java
+index 1a0a92ef7..d25ba80cc 100644
+--- a/src/main/java/net/minecraft/world/entity/Entity.java
++++ b/src/main/java/net/minecraft/world/entity/Entity.java
+@@ -2535,6 +2535,7 @@ public abstract class Entity implements Nameable, EntityAccess, ScoreHolder, Syn
+             if (maxAirTicks != getDefaultMaxAirSupply()) {
+                 output.putInt("Bukkit.MaxAirSupply", getMaxAirSupply());
+             }
++            output.putInt("Spigot.ticksLived", this.tickCount);
+             // CraftBukkit end
+             output.storeNullable("CustomName", ComponentSerialization.CODEC, this.getCustomName());
+             if (this.isCustomNameVisible()) {
+@@ -2670,6 +2671,11 @@ public abstract class Entity implements Nameable, EntityAccess, ScoreHolder, Syn
+             }
+ 
+             // CraftBukkit start
++            // Spigot start
++            if (this instanceof LivingEntity) {
++                this.tickCount = input.getIntOr("Spigot.ticksLived", this.tickCount);
++            }
++            // Spigot end
+             this.persist = input.getBooleanOr("Bukkit.persist", this.persist);
+             this.visibleByDefault = input.getBooleanOr("Bukkit.visibleByDefault", this.visibleByDefault);
+             // SPIGOT-6907: re-implement LivingEntity#setMaximumAir()
+-- 
+2.55.0
+

@@ -46,9 +46,8 @@ public abstract class FetchNeoFormTask extends DefaultTask {
         String version = getNeoformVersion().get();
         File outputDir = getOutputDir().getAsFile().get();
         File marker = new File(outputDir, ".neoform-version");
-        // Not every NeoForm ships side-specific fixups; the empty dir keeps
-        // consumers' directory inputs valid either way.
-        new File(outputDir, "client-patches").mkdirs();
+        // Lumance is a dedicated server: NeoForm's client patches are never used, so the
+        // zip is extracted without a client-patches/ tree and nothing consumes one.
         if (marker.exists() && version.equals(Files.readString(marker.toPath(), StandardCharsets.UTF_8).trim())) {
             getLogger().lifecycle("[Lumance] NeoForm {} already fetched", version);
             return;
@@ -72,6 +71,11 @@ public abstract class FetchNeoFormTask extends DefaultTask {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
+                // Lumance - dedicated server only: skip NeoForm's client patches outright
+                // instead of writing a tree nothing consumes.
+                if (entry.getName().equals("client-patches") || entry.getName().startsWith("client-patches/")) {
+                    continue;
+                }
                 File target = new File(outputDir, entry.getName());
                 if (entry.isDirectory()) {
                     target.mkdirs();
@@ -84,7 +88,6 @@ public abstract class FetchNeoFormTask extends DefaultTask {
             }
         }
         zipFile.delete();
-        new File(outputDir, "client-patches").mkdirs();
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(marker), StandardCharsets.UTF_8)) {
             writer.write(version + "\n");
         }

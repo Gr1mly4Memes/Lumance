@@ -1,0 +1,11 @@
+--- a/net/minecraft/server/commands/GameRuleCommand.java
++++ b/net/minecraft/server/commands/GameRuleCommand.java
+@@ -53,7 +53,7 @@
+         if (gamerules.get(gameRule).equals(t0)) {
+             throw GameRuleCommand.ERROR_GAME_RULE_NOT_SET.create(gameRule, s);
+         } else {
+-            gamerules.set(gameRule, t0, ((CommandSourceStack) context.getSource()).getServer());
++            gamerules.set(gameRule, t0, ((CommandSourceStack) context.getSource()).getLevel()); // CraftBukkit
+             commandsourcestack.sendSuccess(() -> {
+                 return Component.translatable("commands.gamerule.set", gameRule.id(), s);
+             }, true);

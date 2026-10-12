@@ -13,12 +13,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.TreeMap;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.IgnoreEmptyDirectories;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
@@ -70,6 +73,15 @@ public abstract class WriteBootstrapManifestTask extends DefaultTask {
     @InputFile
     @PathSensitive(PathSensitivity.NAME_ONLY)
     public abstract RegularFileProperty getLog4jConfig();
+
+    // Lumance start - Bukkit/Paper runtime libraries Mojang's bundle does not ship. The launcher's
+    // classpath is assembled purely from the bundle, so these must ride along inside the
+    // bootstrap jar under lumance/lib/ and be extracted at startup.
+    @InputFiles
+    @IgnoreEmptyDirectories
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getBootstrapLibs();
+    // Lumance end
 
     @Input
     public abstract Property<String> getLumanceVersion();
@@ -176,6 +188,32 @@ public abstract class WriteBootstrapManifestTask extends DefaultTask {
         File log4jConfig = getLog4jConfig().getAsFile().get();
         manifest.append("lumance.config.file=lumance/log4j2.xml\n");
         manifest.append("lumance.config.sha256=").append(Hashes.sha256(log4jConfig)).append('\n');
+
+        // Lumance start - extra runtime libraries carried inside the bootstrap jar. Mojang's
+        // bundle does not ship Bukkit's dependencies (jline, snakeyaml, bungeecord-chat, ...),
+        // and the launcher builds its classpath from the bundle alone, so without this the
+        // server dies with NoClassDefFoundError as soon as CraftServer is constructed.
+        int x = 0;
+        java.util.List<File> bootstrapLibs = new java.util.ArrayList<>();
+        for (File dir : getBootstrapLibs().getFiles()) {
+            if (!dir.isDirectory()) {
+                bootstrapLibs.add(dir);
+                continue;
+            }
+            File[] jars = dir.listFiles((parent, name) -> name.endsWith(".jar"));
+            if (jars != null) {
+                java.util.Arrays.sort(jars, java.util.Comparator.comparing(File::getName));
+                bootstrapLibs.addAll(java.util.Arrays.asList(jars));
+            }
+        }
+        for (File jar : bootstrapLibs) {
+            manifest.append("lumance.lib.").append(x).append(".path=lumance/lib/").append(jar.getName()).append('\n');
+            manifest.append("lumance.lib.").append(x).append(".sha256=").append(Hashes.sha256(jar)).append('\n');
+            manifest.append("lumance.lib.").append(x).append(".size=").append(jar.length()).append('\n');
+            x++;
+        }
+        manifest.append("lumance.lib.count=").append(x).append('\n');
+        // Lumance end
 
         File output = getOutput().getAsFile().get();
         output.getParentFile().mkdirs();

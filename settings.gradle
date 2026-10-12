@@ -25,6 +25,15 @@ dependencyResolutionManagement {
                 includeGroup('org.ow2.asm')
             }
         }
+        // Spigot snapshots (BungeeCord chat/serializer snapshots for newer MC,
+        // spigot-api if ever referenced). Releases for these live on Central.
+        maven {
+            url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/'
+            content {
+                includeGroup('org.spigotmc')
+                includeGroup('net.md-5')
+            }
+        }
     }
 }
 

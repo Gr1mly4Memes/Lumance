@@ -1,0 +1,84 @@
+From 60728db65623517f67c7905323186ff3fcef76e0 Mon Sep 17 00:00:00 2001
+From: md_5 <git@md-5.net>
+Date: Mon, 25 Feb 2019 19:26:56 +1100
+Subject: [PATCH] Add creative mode NBT permissions
+
+
+diff --git a/src/main/java/net/minecraft/server/level/ServerPlayerGameMode.java b/src/main/java/net/minecraft/server/level/ServerPlayerGameMode.java
+index d12e9f8c9..e3f80d07e 100644
+--- a/src/main/java/net/minecraft/server/level/ServerPlayerGameMode.java
++++ b/src/main/java/net/minecraft/server/level/ServerPlayerGameMode.java
+@@ -255,6 +255,14 @@ public class ServerPlayerGameMode {
+                     return;
+                 }
+ 
++                // Spigot start - handle debug stick left click for non-creative
++                if (this.player.getMainHandItem().is(net.minecraft.world.item.Items.DEBUG_STICK)
++                        && ((net.minecraft.world.item.DebugStickItem) net.minecraft.world.item.Items.DEBUG_STICK).handleInteraction(this.player, this.level.getBlockState(pos), this.level, pos, false, this.player.getMainHandItem())) {
++                    this.player.connection.send(new ClientboundBlockUpdatePacket(this.level, pos));
++                    return;
++                }
++                // Spigot end
++
+                 if (this.player.blockActionRestricted(this.level, pos, this.gameModeForPlayer)) {
+                     this.player.connection.send(new ClientboundBlockUpdatePacket(pos, this.level.getBlockState(pos)));
+                     this.debugLogging(pos, false, sequence, "block action restricted");
+diff --git a/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java b/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java
+index b8dcfd4b4..f25be010e 100644
+--- a/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java
++++ b/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java
+@@ -930,7 +930,7 @@ public class ServerGamePacketListenerImpl extends ServerCommonPacketListenerImpl
+                 ItemStack itemstack = blockstate.getCloneItemStack(serverlevel, blockpos, flag);
+ 
+                 if (!itemstack.isEmpty()) {
+-                    if (flag) {
++                    if (flag && this.player.getBukkitEntity().hasPermission("minecraft.nbt.copy")) { // Spigot
+                         addBlockDataToItem(blockstate, serverlevel, blockpos, itemstack);
+                     }
+ 
+diff --git a/src/main/java/net/minecraft/world/item/BlockItem.java b/src/main/java/net/minecraft/world/item/BlockItem.java
+index dfa16d436..c3d52b1c6 100644
+--- a/src/main/java/net/minecraft/world/item/BlockItem.java
++++ b/src/main/java/net/minecraft/world/item/BlockItem.java
+@@ -203,7 +203,7 @@ public class BlockItem extends Item {
+                         return false;
+                     }
+ 
+-                    if (!blockentitytype.onlyOpCanSetNbt() || player != null && player.canUseGameMasterBlocks()) {
++                    if (!blockentitytype.onlyOpCanSetNbt() || player != null && (player.canUseGameMasterBlocks() || (player.getAbilities().instabuild && player.getBukkitEntity().hasPermission("minecraft.nbt.place")))) { // Spigot - add permission
+                         return typedentitydata.loadInto(blockentity, level.registryAccess());
+                     }
+ 
+diff --git a/src/main/java/net/minecraft/world/item/DebugStickItem.java b/src/main/java/net/minecraft/world/item/DebugStickItem.java
+index 8d47e114b..817ee971b 100644
+--- a/src/main/java/net/minecraft/world/item/DebugStickItem.java
++++ b/src/main/java/net/minecraft/world/item/DebugStickItem.java
+@@ -53,7 +53,7 @@ public class DebugStickItem extends Item {
+     }
+ 
+     public boolean handleInteraction(ServerPlayer player, BlockState state, LevelAccessor level, BlockPos pos, boolean cycle, ItemStack itemStackInHand) {
+-        if (!player.canUseGameMasterBlocks()) {
++        if (!player.canUseGameMasterBlocks() && !(player.getAbilities().instabuild && player.getBukkitEntity().hasPermission("minecraft.debugstick")) && !player.getBukkitEntity().hasPermission("minecraft.debugstick.always")) { // Spigot
+             return false;
+         } else {
+             Holder<Block> holder = state.typeHolder();
+diff --git a/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java b/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
+index 75f8d47a2..525ebf961 100644
+--- a/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
++++ b/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
+@@ -11,6 +11,12 @@ public final class CraftDefaultPermissions {
+     public static void registerCorePermissions() {
+         Permission parent = DefaultPermissions.registerPermission(ROOT, "Gives the user the ability to use all vanilla utilities and commands");
+         CommandPermissions.registerPermissions(parent);
++        // Spigot start
++        DefaultPermissions.registerPermission(ROOT + ".nbt.place", "Gives the user the ability to place restricted blocks with NBT in creative", org.bukkit.permissions.PermissionDefault.OP, parent);
++        DefaultPermissions.registerPermission(ROOT + ".nbt.copy", "Gives the user the ability to copy NBT in creative", org.bukkit.permissions.PermissionDefault.TRUE, parent);
++        DefaultPermissions.registerPermission(ROOT + ".debugstick", "Gives the user the ability to use the debug stick in creative", org.bukkit.permissions.PermissionDefault.OP, parent);
++        DefaultPermissions.registerPermission(ROOT + ".debugstick.always", "Gives the user the ability to use the debug stick in all game modes", org.bukkit.permissions.PermissionDefault.FALSE, parent);
++        // Spigot end
+         parent.recalculatePermissibles();
+     }
+ }
+-- 
+2.55.0
+

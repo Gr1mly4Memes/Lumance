@@ -91,6 +91,30 @@ public final class BootstrapManifest {
         return required("lumance.config.sha256");
     }
 
+    /**
+     * Lumance - Bukkit/Paper runtime libraries that Mojang's server bundle does not ship.
+     * They ride inside the bootstrap jar under {@code lumance/lib/} and are extracted into
+     * the same {@code libraries/} tree the server classpath is assembled from.
+     */
+    public List<Lib> bootstrapLibs() {
+        int count;
+        try {
+            count = Integer.parseInt(props.getProperty("lumance.lib.count", "0"));
+        } catch (NumberFormatException e) {
+            count = 0;
+        }
+        List<Lib> libs = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            String path = props.getProperty("lumance.lib." + i + ".path");
+            String sha256 = props.getProperty("lumance.lib." + i + ".sha256", "");
+            String size = props.getProperty("lumance.lib." + i + ".size", "");
+            if (path != null) {
+                libs.add(new Lib(path, sha256, size));
+            }
+        }
+        return libs;
+    }
+
     public List<Lib> fabricLibs() {
         int count;
         try {

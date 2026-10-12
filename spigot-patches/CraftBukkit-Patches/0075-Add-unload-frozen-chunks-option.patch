@@ -1,0 +1,36 @@
+From 29aff7754dc811a2b8fade9bcd462dbe662cd768 Mon Sep 17 00:00:00 2001
+From: md_5 <git@md-5.net>
+Date: Sat, 18 May 2024 11:39:58 +1000
+Subject: [PATCH] Add unload-frozen-chunks option
+
+
+diff --git a/src/main/java/net/minecraft/server/level/ServerChunkCache.java b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+index 6610694e5..803f9a1a2 100644
+--- a/src/main/java/net/minecraft/server/level/ServerChunkCache.java
++++ b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+@@ -366,7 +366,7 @@ public class ServerChunkCache extends ChunkSource {
+ 
+         profilerfiller.push("purge");
+         this.level.timings.doChunkMap.startTiming(); // Spigot
+-        if (this.level.tickRateManager().runsNormally() || !tickChunks) {
++        if (this.level.tickRateManager().runsNormally() || !tickChunks || this.level.spigotConfig.unloadFrozenChunks) { // Spigot
+             this.ticketStorage.purgeStaleTickets(this.chunkMap);
+         }
+ 
+diff --git a/src/main/java/org/spigotmc/SpigotWorldConfig.java b/src/main/java/org/spigotmc/SpigotWorldConfig.java
+index ebddbf6d0..2891e2537 100644
+--- a/src/main/java/org/spigotmc/SpigotWorldConfig.java
++++ b/src/main/java/org/spigotmc/SpigotWorldConfig.java
+@@ -393,4 +393,9 @@ public class SpigotWorldConfig
+     private void belowZeroGenerationInExistingChunks() {
+         belowZeroGenerationInExistingChunks = getBoolean("below-zero-generation-in-existing-chunks", true);
+     }
++
++    public boolean unloadFrozenChunks;
++    private void unloadFrozenChunks() {
++        unloadFrozenChunks = getBoolean("unload-frozen-chunks", false);
++    }
+ }
+-- 
+2.55.0
+

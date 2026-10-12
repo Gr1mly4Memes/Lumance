@@ -12,20 +12,22 @@ an opt-in fuzzy pass (`fuzzyApplyPatches` and friends) for hand-dropped files.
 Each patch belongs to exactly one track by path:
 
 - `com/mojang/brigadier/**` → brigadier track (`work/brigadier/java`)
-- `net/minecraft/client/**`, `com/mojang/realmsclient/**`,
-  `com/mojang/blaze3d/**`, `com/mojang/renderpearl/**` → client track
-  (`work/client/java`)
 - everything else → server track (`work/main/java`)
+
+There is no client track: Lumance is a dedicated server, so client paths have no
+tree to land in. A patch dropped under `net/minecraft/client/**` (or
+`com/mojang/realmsclient/**`, `com/mojang/blaze3d/**`,
+`com/mojang/renderpearl/**`) is claimed by the server track and fails loudly,
+rather than being silently ignored.
 
 Workflows (one per track, same shape):
 
 ```bash
-gradlew setup          # decompile everything, apply patches -> work/main|client|brigadier/java
+gradlew setup               # decompile, apply patches -> work/main|brigadier/java
 # ... edit files under work/main/java ...
-gradlew genPatches      # regenerate server-track patches from your edits
-gradlew genPatchesClient      # same for work/client/java
-gradlew genPatchesBrigadier   # same for work/brigadier/java
-gradlew build           # compile + repack + build the bootstrap jar
+gradlew genPatches          # regenerate server-track patches from your edits
+gradlew genPatchesBrigadier # same for work/brigadier/java
+gradlew build               # compile + repack + build the bootstrap jar
 ```
 
 Dropping in a patch by hand (PaperMC-style) also works: put the file in this
@@ -34,8 +36,8 @@ Three outcomes:
 
 - Applies exactly → silent, like any other patch.
 - Drifted but salvageable → strict `setup` fails loudly on that file. Run the
-  matching `fuzzyApply*` task (`fuzzyApplyPatches`, `fuzzyApplyClientPatches`,
-  `fuzzyApplyBrigadierPatches`) for one fuzzy attempt per file; anything it
+  matching `fuzzyApply*` task (`fuzzyApplyPatches`, `fuzzyApplyBrigadierPatches`)
+  for one fuzzy attempt per file; anything it
   catches is named loudly in the log. Run the matching `genPatches*` right
   after to rebase into exact patches.
 - Half-placeable (some hunks anchor on code that only exists upstream, e.g.

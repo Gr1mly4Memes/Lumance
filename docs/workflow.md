@@ -60,8 +60,8 @@ same deal as NeoForm's "reload the gradle project in your IDE" step):
 2. In IntelliJ, **Reload All Gradle Projects** from the Gradle tool window
    (the circular-arrows icon - a plain file reload is not enough), and wait
    for the sync to finish without errors.
-3. Expect `work/main [server]`, `work/client [client]`, `work/brigadier`
-   as source roots with `work/cache` excluded. The CLI build
+3. Expect `work/main [server]`, `work/brigadier` as source roots with
+   `work/cache` excluded. The CLI build
    (`gradlew compileServerJava`) is the ground truth: if it passes and the
    editor still shows red, the IDE model is stale - check the sync output,
    confirm the Project SDK is 25, and use File → Invalidate Caches as the
@@ -124,11 +124,11 @@ Two things mod authors (and you, when picking mods) should know:
 
 ```
 patches/            every Lumance patch in one tree mirroring package layout;
-                    server, client and brigadier tracks split by path (see below)
+                    server and brigadier tracks split by path (see below)
 src/lumance/java/   Lumance's own classes, compiled into the server jar
 src/main/java/      Lumance's built-in Fabric mod (mixins + entrypoint), always loaded
-work/               gitignored pipeline state; only work/main, work/client and
-                    work/brigadier (each with java/ underneath) are meant to be opened
+work/               gitignored pipeline state; only work/main and work/brigadier
+                    (each with java/ underneath) are meant to be opened
 launcher/           dependency-free bootstrap (download -> extract -> patch -> launch)
 buildSrc/           the Gradle tasks driving the pipeline above
 docs/               documentation
@@ -136,10 +136,13 @@ docs/               documentation
 
 ## Patch tracks
 
-`patches/` holds server, client and brigadier patches side by side. The track
-is derived from the path: `com/mojang/brigadier/**` is brigadier;
-`net/minecraft/client/**`, `com/mojang/realmsclient/**`,
-`com/mojang/blaze3d/**` and `com/mojang/renderpearl/**` are client;
-everything else is server. Each `genPatches*`/`apply*` task only touches its
-own track, and generating over another track's differing patch fails loudly
-instead of overwriting it.
+`patches/` holds server and brigadier patches side by side. The track is
+derived from the path: `com/mojang/brigadier/**` is brigadier, everything else
+is server. Each `genPatches*`/`apply*` task only touches its own track, and
+generating over another track's differing patch fails loudly instead of
+overwriting it.
+
+There is no client track. Lumance is a dedicated server: `gradlew setup` does
+not download the vanilla client jar, does not run NeoForm's client patches and
+does not produce `work/client`. A patch under a client path is claimed by the
+server track so it fails loudly instead of being silently ignored.

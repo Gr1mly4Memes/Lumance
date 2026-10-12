@@ -1,0 +1,44 @@
+From aad3718ad1953a94d0acb1edf7112ec6699fc92a Mon Sep 17 00:00:00 2001
+From: md_5 <git@md-5.net>
+Date: Thu, 27 Jun 2013 17:26:09 +1000
+Subject: [PATCH] Properly Close Inventories
+
+Properly close inventories when unloading and switching worlds.
+
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index acd2b8e84..3b29b0c21 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -1288,6 +1288,15 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+     }
+ 
+     public void unload(LevelChunk levelChunk) {
++        // Spigot Start
++        for (net.minecraft.world.level.block.entity.BlockEntity blockentity : levelChunk.getBlockEntities().values()) {
++            if (blockentity instanceof net.minecraft.world.Container) {
++                for (org.bukkit.entity.HumanEntity h : Lists.newArrayList(((net.minecraft.world.Container) blockentity).getViewers())) {
++                    h.closeInventory();
++                }
++            }
++        }
++        // Spigot End
+         levelChunk.clearAllBlockEntities();
+         levelChunk.unregisterTickContainerFromLevel(this);
+         this.debugSynchronizers.dropChunk(levelChunk.getPos());
+@@ -2281,6 +2290,13 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+ 
+         public void onTrackingEnd(Entity entity) {
+             org.spigotmc.AsyncCatcher.catchOp("entity unregister"); // Spigot
++            // Spigot Start
++            if (entity.getBukkitEntity() instanceof org.bukkit.inventory.InventoryHolder && (!(entity instanceof ServerPlayer) || entity.getRemovalReason() != Entity.RemovalReason.KILLED)) { // SPIGOT-6876: closeInventory clears death message
++                for (org.bukkit.entity.HumanEntity h : Lists.newArrayList(((org.bukkit.inventory.InventoryHolder) entity.getBukkitEntity()).getInventory().getViewers())) {
++                    h.closeInventory();
++                }
++            }
++            // Spigot End
+             ServerLevel.this.getChunkSource().removeEntity(entity);
+             if (entity instanceof ServerPlayer serverplayer) {
+                 ServerLevel.this.players.remove(serverplayer);
+-- 
+2.55.0
+

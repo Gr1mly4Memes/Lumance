@@ -1,0 +1,83 @@
+--- a/net/minecraft/server/commands/TimeCommand.java
++++ b/net/minecraft/server/commands/TimeCommand.java
+@@ -102,7 +102,7 @@
+     }
+ 
+     private static CompletableFuture<Suggestions> suggestTimeMarkers(CommandSourceStack source, SuggestionsBuilder builder, Holder<WorldClock> clock) {
+-        return SharedSuggestionProvider.suggestResource(source.getServer().clockManager().commandTimeMarkersForClock(clock).map(ResourceKey::identifier), builder);
++        return SharedSuggestionProvider.suggestResource(source.getLevel().clockManager().commandTimeMarkersForClock(clock).map(ResourceKey::identifier), builder); // CraftBukkit - per-world time
+     }
+ 
+     private static CompletableFuture<Suggestions> suggestTimelines(CommandSourceStack source, SuggestionsBuilder builder, Holder<WorldClock> clock) {
+@@ -123,7 +123,7 @@
+     }
+ 
+     private static int queryTime(CommandSourceStack source, Holder<WorldClock> clock) {
+-        ServerClockManager serverclockmanager = source.getServer().clockManager();
++        ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+         long i = serverclockmanager.getInstance(clock).totalTicks();
+ 
+         source.sendSuccess(() -> {
+@@ -136,7 +136,7 @@
+         if (!clock.equals((timeline.value()).clock())) {
+             throw TimeCommand.ERROR_WRONG_TIMELINE_FOR_CLOCK.create(clock.getRegisteredName(), timeline.getRegisteredName());
+         } else {
+-            ServerClockManager serverclockmanager = source.getServer().clockManager();
++            ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+             long i = ((Timeline) timeline.value()).getCurrentTicks(serverclockmanager);
+ 
+             source.sendSuccess(() -> {
+@@ -150,7 +150,7 @@
+         if (!clock.equals((timeline.value()).clock())) {
+             throw TimeCommand.ERROR_WRONG_TIMELINE_FOR_CLOCK.create(clock.getRegisteredName(), timeline.getRegisteredName());
+         } else {
+-            ServerClockManager serverclockmanager = source.getServer().clockManager();
++            ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+             long i = (long) ((Timeline) timeline.value()).getPeriodCount(serverclockmanager);
+ 
+             source.sendSuccess(() -> {
+@@ -161,7 +161,7 @@
+     }
+ 
+     private static int setTotalTicks(CommandSourceStack source, Holder<WorldClock> clock, int totalTicks) throws CommandSyntaxException {
+-        ServerClockManager serverclockmanager = source.getServer().clockManager();
++        ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+ 
+         if (serverclockmanager.getInstance(clock).totalTicks() == (long) totalTicks) {
+             throw TimeCommand.ERROR_ALREADY_AT_TIME.create(clock.getRegisteredName(), totalTicks);
+@@ -175,7 +175,7 @@
+     }
+ 
+     private static int addTime(CommandSourceStack source, Holder<WorldClock> clock, int time) {
+-        ServerClockManager serverclockmanager = source.getServer().clockManager();
++        ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+ 
+         serverclockmanager.addTicks(clock, time);
+         long j = serverclockmanager.getInstance(clock).totalTicks();
+@@ -187,7 +187,7 @@
+     }
+ 
+     private static int setTimeToTimeMarker(CommandSourceStack source, Holder<WorldClock> clock, ResourceKey<ClockTimeMarker> timeMarkerId) throws CommandSyntaxException {
+-        ServerClockManager serverclockmanager = source.getServer().clockManager();
++        ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+         ServerClockManager.MoveResult serverclockmanager_moveresult = serverclockmanager.moveToTimeMarker(clock, timeMarkerId);
+         String s = clock.getRegisteredName();
+         String s1 = timeMarkerId.identifier().toString();
+@@ -207,7 +207,7 @@
+     }
+ 
+     private static int setPaused(CommandSourceStack source, Holder<WorldClock> clock, boolean paused) throws CommandSyntaxException {
+-        ServerClockManager serverclockmanager = source.getServer().clockManager();
++        ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world
+         String s = clock.getRegisteredName();
+ 
+         if (serverclockmanager.getInstance(clock).isPaused() == paused) {
+@@ -226,7 +226,7 @@
+     }
+ 
+     private static int setRate(CommandSourceStack source, Holder<WorldClock> clock, float rate) throws CommandSyntaxException {
+-        ServerClockManager serverclockmanager = source.getServer().clockManager();
++        ServerClockManager serverclockmanager = source.getLevel().clockManager(); // CraftBukkit - per-world time
+ 
+         if (serverclockmanager.getInstance(clock).rate() == rate) {
+             throw TimeCommand.ERROR_ALREADY_SAME_RATE.create(clock.getRegisteredName(), rate);

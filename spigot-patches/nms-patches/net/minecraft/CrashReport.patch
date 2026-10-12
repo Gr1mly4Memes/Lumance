@@ -1,0 +1,39 @@
+--- a/net/minecraft/CrashReport.java
++++ b/net/minecraft/CrashReport.java
+@@ -36,6 +36,7 @@
+     public CrashReport(String title, Throwable t) {
+         this.title = title;
+         this.exception = t;
++        this.systemReport.setDetail("CraftBukkit Information", new org.bukkit.craftbukkit.CraftCrashReport()); // CraftBukkit
+     }
+ 
+     public String getTitle() {
+@@ -133,18 +134,16 @@
+         //0->java/lang/NullPointerException
+         //1->java/lang/StackOverflowError
+         //2->java/lang/OutOfMemoryError
+-        switch (original.typeSwitch<invokedynamic>(original, b0)) {
+-            case 0:
+-                throwable1 = copyProperties(original, new NullPointerException(title));
+-                break;
+-            case 1:
+-                throwable1 = copyProperties(original, new StackOverflowError(title));
+-                break;
+-            case 2:
+-                throwable1 = copyProperties(original, new OutOfMemoryError(title));
+-                break;
+-            default:
+-                throwable1 = original;
++        // CraftBukkit start - decompile error
++        if (original instanceof NullPointerException) {
++            throwable1 = copyProperties(original, new NullPointerException(title));
++        } else if (original instanceof StackOverflowError) {
++            throwable1 = copyProperties(original, new StackOverflowError(title));
++        } else if (original instanceof OutOfMemoryError) {
++            throwable1 = copyProperties(original, new OutOfMemoryError(title));
++        } else {
++            throwable1 = original;
++            // CraftBukkit end
+         }
+ 
+         return throwable1;

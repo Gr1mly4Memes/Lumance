@@ -105,6 +105,23 @@ public final class MixinTolerance {
         }
         String id = Sha1.shortId(Sha1.sha256(fingerprint.toString().getBytes(StandardCharsets.UTF_8)));
         File shadow = new File(shadowRoot, "mods-tolerant-" + id);
+
+        // Lumance - actually reuse the previous shadow folder.
+        File marker = new File(shadow, COMPLETE_MARKER);
+        if (marker.isFile()) {
+            Integer configs = readRewrittenCount(marker);
+            int present = 0;
+            for (File jar : modJars) {
+                if (new File(shadow, jar.getName()).isFile()) {
+                    present++;
+                }
+            }
+            if (configs != null && present == modJars.size()) {
+                return new Result(shadow.getAbsolutePath(), modJars.size(), configs, present);
+            }
+            // Marker present but the folder does not match: fall through and rebuild it.
+        }
+
         if (shadow.isDirectory()) {
             deleteRecursively(shadow);
         }
@@ -129,7 +146,28 @@ public final class MixinTolerance {
                 copied++;
             }
         }
+        // Lumance - stamp the finished folder so the next boot can reuse it. This must be the last
+        // thing written; anything after it would not be covered by the marker.
+        Files.writeString(marker.toPath(), Integer.toString(configs), StandardCharsets.UTF_8);
+
         return new Result(shadow.getAbsolutePath(), modJars.size(), configs, copied);
+    }
+
+    /** Written into a finished shadow folder to mark it safe to reuse; see {@link #apply}. */
+    private static final String COMPLETE_MARKER = ".lumance-shadow-complete";
+
+    /**
+     * Reads the rewritten-config count back out of a completion marker.
+     *
+     * @return the count, or {@code null} if the marker is missing or unreadable, which makes the
+     *         caller rebuild the folder rather than guess
+     */
+    private static Integer readRewrittenCount(File marker) {
+        try {
+            return Integer.valueOf(Files.readString(marker.toPath(), StandardCharsets.UTF_8).trim());
+        } catch (IOException | NumberFormatException unreadable) {
+            return null;
+        }
     }
 
     /**

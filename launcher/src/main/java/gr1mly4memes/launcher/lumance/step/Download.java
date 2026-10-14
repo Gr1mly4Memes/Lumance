@@ -94,7 +94,7 @@ public final class Download {
                 }
             }
         }
-        if (!entry.expectedHash().isEmpty() && !Objects.equals(Sha1.hash(part, entry.algorithm()), entry.expectedHash())) {
+        if (!entry.expectedHash().isEmpty() && !Objects.equals(Sha1.hashUncached(part, entry.algorithm()), entry.expectedHash())) {
             part.delete();
             throw new IllegalStateException("Hash mismatch downloading " + entry.url());
         }

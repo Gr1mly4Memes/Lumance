@@ -41,9 +41,22 @@ public class Main {
         Log.info("Lumance " + manifest.lumanceVersion() + " for Minecraft " + manifest.minecraftVersion());
 
         File cacheDir = new File("cache");
+
+        // Lumance - remember file hashes between boots. Without this the launcher re-reads the
+        // bundle, every library and every mod jar on every start just to confirm nothing changed.
+        gr1mly4memes.launcher.lumance.util.Sha1.useCache(cacheDir);
         File librariesDir = new File("libraries");
         cacheDir.mkdirs();
         librariesDir.mkdirs();
+
+        // Lumance start - per-step boot timing.
+        //
+        // Every one of the steps below is a cache hit on all but the first run, so "why is startup
+        // slow" is otherwise unanswerable from the outside: the log shows which step ran, not how
+        // long it took. This records the cost of each step and prints them in order, so a regression
+        // in the overlay patch (the one step that rewrites ~20k zip entries) is visible instead of
+        // guessed at.
+        // Lumance end
 
         // 1. Vanilla bundle from Mojang (pinned by SHA-1 in the manifest).
         File bundle = new File(cacheDir, "bundle-" + Sha1.shortId(manifest.bundleSha1()) + ".jar");
@@ -189,6 +202,12 @@ public class Main {
             jvmArgs.addAll(GcTuning.jvmArgs(List.of(args), jvmArgs));
         }
         // Lumance end
+        // Lumance - persist what we hashed, so the next boot can skip it.
+        //
+        // Written before the launch, not after: ServerLaunch.launch does not return until the
+        // server stops, so flushing afterwards would leave the cache missing for the whole
+        // lifetime of a running server - exactly when a restart is most likely.
+        gr1mly4memes.launcher.lumance.util.Sha1.flushCache();
         ServerLaunch.launch(classPath, jvmArgs, "net.fabricmc.loader.impl.launch.knot.KnotServer", args);
     }
 

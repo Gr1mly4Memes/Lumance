@@ -1282,3 +1282,8 @@
  
      public record ServerResourcePackInfo(UUID id, String url, String hash, boolean isRequired, @Nullable Component prompt) {
      }
+@@ -2282,3 +_,4 @@
+         }
+     }
+ }
++

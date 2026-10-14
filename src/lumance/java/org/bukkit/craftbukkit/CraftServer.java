@@ -1,5 +1,6 @@
 package org.bukkit.craftbukkit;
 
+import gr1mly4memes.lumance.commands.subcommands.ModsCommand;
 import org.jetbrains.annotations.NotNull;
 
 import com.google.common.base.Charsets;
@@ -515,6 +516,13 @@ public final class CraftServer implements Server {
             loadCustomPermissions();
             helpMap.initializeCommands();
             syncCommands();
+            // Lumance - /mods lists the Fabric mods, which Bukkit's /plugins cannot show.
+            //
+            // Registered here rather than in reload(): reload() clears the command map and then
+            // re-registers plugin commands, but nothing rebuilds the Brigadier dispatcher after it,
+            // so anything added there is invisible to the server console. This runs immediately
+            // before syncCommands(), which is what copies the map into the dispatcher.
+            commandMap.register("mods", new ModsCommand());
         }
     }
 
